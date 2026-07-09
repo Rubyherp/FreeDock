@@ -52,6 +52,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for dock in configManager.config.docks {
                 let dockMenu = NSMenu()
                 
+                // rename dock
+                let renameItem = NSMenuItem(
+                    title: "Rename…",
+                    action: #selector(renameDock(_:)),
+                    keyEquivalent: ""
+                )
+                renameItem.representedObject = dock.id
+                dockMenu.addItem(renameItem)
+
+                dockMenu.addItem(.separator())
+
                 // show/hide toggle
                 let toggle = NSMenuItem(
                     title: dockPanels[dock.id] != nil ? "Hide Dock" : "Show Dock",
@@ -175,6 +186,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLockPositions() {
         _lockPositions.toggle()
         rebuildMenu()
+    }
+
+    @objc private func renameDock(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Rename Dock"
+        alert.informativeText = "Enter a new name for the dock:"
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.stringValue = configManager.config.docks[idx].name
+        alert.accessoryView = field
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            let newName = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !newName.isEmpty else { return }
+
+            configManager.config.docks[idx].name = newName
+            configManager.save()
+            rebuildMenu()
+        }
     }
 
     @objc private func changeIconSize(_ sender: NSMenuItem) {
