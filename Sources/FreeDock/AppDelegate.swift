@@ -141,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let dockID = config.id
         let content = DockContentView(
+            panel: panel,
             items: Binding(
                 get: { self.configManager.config.docks.first(where: { $0.id == dockID })?.items ?? [] },
                 set: { newItems in
@@ -150,14 +151,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             orientation: config.orientation,
             iconSize: config.iconSize,
-            onItemsChanged: { _ in self.configManager.save() },
+            onItemsChanged: { _ in
+                self.configManager.save()
+                DispatchQueue.main.async { panel.resizeToFitContent() }
+            },
             onAppLaunch: { item in NSWorkspace.shared.open(URL(fileURLWithPath: item.appPath)) }
         )
 
+        panel.dockOrientation = config.orientation
         panel.setContentView(content)
         panel.dockDelegate = self
-        panel.dockOrientation = config.orientation
-        panel.addDragHandle(orientation: config.orientation)
+        // panel.addDragHandle(orientation: config.orientation)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         dockPanels[config.id] = panel

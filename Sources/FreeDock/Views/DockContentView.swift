@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockContentView: View {
+    let panel: DockPanel
     @Binding var items: [DockItem]
     let orientation: Orientation
     let iconSize: Double
@@ -9,7 +10,9 @@ struct DockContentView: View {
     let onAppLaunch: @MainActor (DockItem) -> Void
 
     @State private var isTargeted = false
+    @State private var dropPulse = false
     @State private var draggedItem: DockItem?
+    @State private var displayedItems: [DockItem]?
 
     // private var startPadding: CGFloat {
     //     orientation == .horizontal ? 24 : 0
@@ -22,24 +25,38 @@ struct DockContentView: View {
     var body: some View {
     if orientation == .horizontal {
         HStack(spacing: 0) {
-            DockGripView(orientation: orientation)
-                .padding(.leading, 8)
-            HStack(spacing: 6) { content }
+            DockDragHandleRepresentable(
+                panel: panel,
+                orientation: orientation
+            )
+                .frame(width: 32)
+                // .padding(.leading, 8)
+            HStack(spacing: 0) { content } // changed to 0
                 .padding(8)
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
+        .overlay(dropZoneHighlight)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+        .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+        .onAppear { displayedItems = items }
+        .onChange(of: items) { displayedItems = $0 }
     } else {
         VStack(spacing: 0) {
-            DockGripView(orientation: orientation)
+            DockDragHandleRepresentable(
+                panel: panel,
+                orientation: orientation
+            )
+                .frame(height: 32)
                 .padding(.top, 8)
-            VStack(spacing: 6) { content }
+            VStack(spacing: 0) { content } // changed to 0
                 .padding(8)
         }
         .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
+        .overlay(dropZoneHighlight)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+        .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+        .onAppear { displayedItems = items }
+        .onChange(of: items) { displayedItems = $0 }
     }
 }
 
@@ -72,17 +89,37 @@ struct DockContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if items.isEmpty {
+        let currentItems = displayedItems ?? items
+        if currentItems.isEmpty {
             Text("Drag apps here")
                 .foregroundColor(.secondary)
                 .font(.caption)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
         } else {
-            ForEach(items) { item in
+            ForEach(currentItems) { item in
                 DockItemView(item: item, iconSize: iconSize, onLaunch: { onAppLaunch(item) }, onRemove: { removeItem(item) })
                     .onDrag { draggedItem = item; return NSItemProvider(object: item.id.uuidString as NSString) }
                     .onDrop(of: [.text], isTargeted: nil) { providers, _ in handleReorder(providers, targetItem: item) }
+            }
+        }
+    }
+
+    private var dropZoneHighlight: some View {
+        RoundedRectangle(cornerRadius: 14)
+            .stroke(isTargeted ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55) : Color.clear, lineWidth: 3)
+            .shadow(color: isTargeted ? Color.accentColor.opacity(dropPulse ? 0.35 : 0.12) : Color.clear, radius: dropPulse ? 7 : 2)
+    }
+
+    private func updateDropPulse(_ targeted: Bool) {
+        if targeted {
+            dropPulse = false
+            withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                dropPulse = true
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.12)) {
+                dropPulse = false
             }
         }
     }
@@ -95,23 +132,37 @@ struct DockContentView: View {
                 guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil), url.path.hasSuffix(".app"), FileManager.default.fileExists(atPath: url.path) else { return }
                 let info = AppInfo.resolve(from: url.path)
                 let newItem = DockItem(appPath: url.path, label: info.displayName)
-                DispatchQueue.main.async { items.append(newItem); onItemsChanged(items) }
+                DispatchQueue.main.async {
+                    var updatedItems = displayedItems ?? items
+                    updatedItems.append(newItem)
+                    commitItems(updatedItems)
+                }
             }
         }
         return true
     }
 
     private func handleReorder(_ providers: [NSItemProvider], targetItem: DockItem) -> Bool {
-        guard let dragged = draggedItem, let fromIdx = items.firstIndex(where: { $0.id == dragged.id }), let toIdx = items.firstIndex(where: { $0.id == targetItem.id }), fromIdx != toIdx else { return false }
-        withAnimation { items.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx) }
+        var updatedItems = displayedItems ?? items
+        guard let dragged = draggedItem, let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }), let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }), fromIdx != toIdx else { return false }
+        withAnimation { updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx) }
         draggedItem = nil
-        onItemsChanged(items)
+        commitItems(updatedItems)
         return true
     }
 
     private func removeItem(_ item: DockItem) {
-        items.removeAll(where: { $0.id == item.id })
-        onItemsChanged(items)
+        var updatedItems = displayedItems ?? items
+        updatedItems.removeAll(where: { $0.id == item.id })
+        withAnimation { displayedItems = updatedItems }
+        items = updatedItems
+        onItemsChanged(updatedItems)
+    }
+
+    private func commitItems(_ updatedItems: [DockItem]) {
+        displayedItems = updatedItems
+        items = updatedItems
+        onItemsChanged(updatedItems)
     }
 }
 

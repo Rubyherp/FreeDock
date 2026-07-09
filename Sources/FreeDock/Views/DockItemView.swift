@@ -35,18 +35,32 @@ struct DockItemView: View {
             }
         }
         .padding(4)
-        .background(isHovering ? Color.gray.opacity(0.15) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .scaleEffect(isHovering ? 1.08 : 1.0)
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
         .onHover { h in
             isHovering = h
             if h { NSCursor.pointingHand.push() }
             else { NSCursor.pop() }
         }
         .onTapGesture { onLaunch() }
-        .contextMenu { Button("Remove from Dock") { onRemove() } }
+        .contextMenu {
+            Button("Show in Finder") { showInFinder() }
+            Button("Copy Path") { copyPath() }
+            Divider()
+            Button("Remove from Dock", role: .destructive) { onRemove() }
+        }
         .onAppear {
             if appInfo == nil { appInfo = AppInfo.resolve(from: item.appPath) }
             if bundleID == nil { bundleID = AppInfo.resolveBundleID(from: item.appPath) }
         }
+    }
+
+    private func showInFinder() {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.appPath)])
+    }
+
+    private func copyPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.appPath, forType: .string)
     }
 }
