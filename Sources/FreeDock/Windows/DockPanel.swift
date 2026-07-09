@@ -3,6 +3,7 @@ import SwiftUI
 
 class DockPanel: NSPanel {
     let dockID: UUID
+    var dockOrientation: Orientation = .horizontal
     weak var dockDelegate: DockPanelDelegate?
 
     init(dockID: UUID, contentRect: NSRect) {
@@ -15,6 +16,7 @@ class DockPanel: NSPanel {
         )
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
+        hidesOnDeactivate = false
         level = .floating
         isOpaque = false
         backgroundColor = .clear
@@ -36,14 +38,45 @@ class DockPanel: NSPanel {
         hosting.layer?.masksToBounds = true
         container.addSubview(hosting)
         contentView = container
-        container.setFrameSize(hosting.intrinsicContentSize)
-        setContentSize(container.frame.size)
+        let intrinsicSize = hosting.intrinsicContentSize
+        let enforcedSize = NSSize(
+            width: max(intrinsicSize.width, 320),
+            height: max(intrinsicSize.height, 72)
+        )
+        container.setFrameSize(enforcedSize)
+        hosting.frame = container.bounds
+        setContentSize(enforcedSize)
     }
 
-    func addDragHandle() {
+    func addDragHandle(orientation: Orientation) {
         guard let container = contentView else { return }
-        let handle = DockDragHandleView(frame: container.bounds)
-        handle.autoresizingMask = [.width, .height]
+        let stripWidth: CGFloat = 24
+        let handle: DockDragHandleView
+
+        if orientation == .horizontal {
+            handle = DockDragHandleView(
+                frame: NSRect(
+                    x: 102, // change handle position, shift to the right
+                    y: -10, // make the handle longer towards -10
+                    width: 24,
+                    height: container.bounds.height - 16,
+                )
+            )
+            handle.autoresizingMask = [.height, .maxXMargin]
+        } else {
+            handle = DockDragHandleView(
+                frame: NSRect(
+                    x: -10,
+                    y: container.bounds.height - 20,
+                    width: container.bounds.width - 16,
+                    height: 24,
+                )
+            )
+            handle.autoresizingMask = [.width, .maxYMargin]
+        }
+
+        handle.wantsLayer = true
+        handle.layer?.backgroundColor = NSColor.clear.cgColor
         handle.dockPanel = self
         container.addSubview(handle)
     }

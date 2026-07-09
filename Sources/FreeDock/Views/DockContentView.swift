@@ -11,21 +11,73 @@ struct DockContentView: View {
     @State private var isTargeted = false
     @State private var draggedItem: DockItem?
 
+    // private var startPadding: CGFloat {
+    //     orientation == .horizontal ? 24 : 0
+    // }
+    //
+    // private var topPadding: CGFloat {
+    //     orientation == .vertical ? 24 : 0
+    // }
+
     var body: some View {
-        Group {
-            if orientation == .horizontal { HStack(spacing: 6) { content } }
-            else { VStack(spacing: 6) { content } }
+    if orientation == .horizontal {
+        HStack(spacing: 0) {
+            DockGripView(orientation: orientation)
+                .padding(.leading, 8)
+            HStack(spacing: 6) { content }
+                .padding(8)
         }
-        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+    } else {
+        VStack(spacing: 0) {
+            DockGripView(orientation: orientation)
+                .padding(.top, 8)
+            VStack(spacing: 6) { content }
+                .padding(8)
+        }
         .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
     }
+}
+
+    // var body: some View {
+    //
+    //     Group {
+    //         if orientation == .horizontal {
+    //             HStack(spacing: 6) {
+    //                 DockGripView(orientation: orientation)
+    //                 content
+    //             }
+    //         } else {
+    //             VStack(spacing: 6) {
+    //                 DockGripView(orientation: orientation)
+    //                 content
+    //             }
+    //         }
+    //     }
+    //     .padding(8)
+    //     .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
+    //     .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
+    //     .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+    //     // Group {
+    //     //     if orientation == .horizontal { HStack(spacing: 6) { content } }
+    //     //     else { VStack(spacing: 6) { content } }
+    //     // }
+    //     // .padding(.leading, startPadding)
+    //     // .padding(.top, topPadding)
+    // }
 
     @ViewBuilder
     private var content: some View {
         if items.isEmpty {
-            Text("Drag apps here").foregroundColor(.secondary).font(.caption).padding(.horizontal, 12).padding(.vertical, 6)
+            Text("Drag apps here")
+                .foregroundColor(.secondary)
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
         } else {
             ForEach(items) { item in
                 DockItemView(item: item, iconSize: iconSize, onLaunch: { onAppLaunch(item) }, onRemove: { removeItem(item) })
@@ -60,5 +112,17 @@ struct DockContentView: View {
     private func removeItem(_ item: DockItem) {
         items.removeAll(where: { $0.id == item.id })
         onItemsChanged(items)
+    }
+}
+
+struct DockGripView: View {
+    let orientation: Orientation
+    var body: some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(Color(nsColor: .separatorColor).opacity(0.3))
+            .frame(
+                width: orientation == .horizontal ? 3 : 36,
+                height: orientation == .horizontal ? 36 : 3
+            )
     }
 }

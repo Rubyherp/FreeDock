@@ -1,7 +1,6 @@
 import Cocoa
 import SwiftUI
 
-@main
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -13,10 +12,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var _lockPositions = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem?.button?.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "FreeDock")
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "FreeDock") {
+            statusItem?.button?.image = image
+        } else {
+            statusItem?.button?.title = "FD"
+        }
         rebuildMenu()
         restoreDocks()
+        if configManager.config.docks.isEmpty {
+            createInitialSeededDock()
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -66,14 +73,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newHorizontalDock() { createDock(orientation: .horizontal) }
     @objc private func newVerticalDock() { createDock(orientation: .vertical) }
 
+    private var defaultDockPosition: CGPoint {
+        let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+            ?? NSRect(x: 100, y: 100, width: 1200, height: 800)
+        return CGPoint(x: visibleFrame.midX - 150, y: visibleFrame.midY - 30)
+    }
+
     private func createDock(orientation: Orientation) {
-        guard let screen = NSScreen.main else { return }
-        let pos = CGPoint(x: screen.visibleFrame.midX - 150, y: screen.visibleFrame.midY - 30)
-        let dock = DockConfig(name: "Dock \(configManager.config.docks.count + 1)", position: pos, orientation: orientation)
+        let dock = DockConfig(name: "Dock \(configManager.config.docks.count + 1)", position: defaultDockPosition, orientation: orientation)
         configManager.config.docks.append(dock)
         showDock(dock)
         configManager.save()
         rebuildMenu()
+    }
+
+    private func createInitialSeededDock() {
+        let dock = DockConfig(name: "Dock 1", position: defaultDockPosition, orientation: .horizontal, items: seededDockItems())
+        configManager.config.docks.append(dock)
+        showDock(dock)
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func seededDockItems() -> [DockItem] {
+        [
+            "/Applications/Safari.app",
+            "/Applications/Google Chrome.app",
+            "/Applications/Calculator.app",
+            "/Applications/Notes.app",
+            "/System/Applications/Utilities/Terminal.app"
+        ]
+        .filter { FileManager.default.fileExists(atPath: $0) }
+        .prefix(4)
+        .map { path in DockItem(appPath: path, label: AppInfo.resolve(from: path).displayName) }
     }
 
     @objc private func toggleDock(_ sender: NSMenuItem) {
@@ -124,8 +156,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         panel.setContentView(content)
         panel.dockDelegate = self
-        panel.addDragHandle()
-        panel.orderFront(nil)
+        panel.dockOrientation = config.orientation
+        panel.addDragHandle(orientation: config.orientation)
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
         dockPanels[config.id] = panel
     }
 
