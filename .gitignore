@@ -4,3 +4,7 @@
 .swiftpm
 *.xcworkspace
 *.xcuserdata
+build/
+archive/
+.superpowers/
+docs/superpowers/
