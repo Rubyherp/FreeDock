@@ -11,6 +11,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var _lockPositions = false
 
+    
+    private struct IconSizeSelection {
+        let dockID: UUID
+        let size: Double
+    }
+
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "FreeDock") {
@@ -43,10 +50,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !configManager.config.docks.isEmpty {
             menu.addItem(.separator())
             for dock in configManager.config.docks {
-                let item = NSMenuItem(title: dock.name, action: #selector(toggleDock(_:)), keyEquivalent: "")
-                item.representedObject = dock.id
-                item.state = (dockPanels[dock.id] != nil) ? .on : .off
-                menu.addItem(item)
+                let dockMenu = NSMenu()
+                
+                // show/hide toggle
+                let toggle = NSMenuItem(
+                    title: dockPanels[dock.id] != nil ? "Hide Dock" : "Show Dock",
+                    action: #selector(toggleDock(_:)),
+                    keyEquivalent: ""
+                )
+                toggle.representedObject = dock.id
+                dockMenu.addItem(toggle)
+
+                dockMenu.addItem(.separator())
+
+                // Icon size submenu
+                let iconMenu = NSMenu()
+
+                for size in [16.0, 24.0, 32.0, 48.0, 64.0] {
+                    let sizeItem = NSMenuItem(
+                        title: "\(Int(size)) px", 
+                        action: #selector(changeIconSize(_:)), 
+                        keyEquivalent: ""
+                    )
+
+                    sizeItem.state = dock.iconSize == size ? NSControl.StateValue.on : NSControl.StateValue.off
+                    sizeItem.representedObject = IconSizeSelection(
+                        dockID: dock.id,
+                        size: size
+                    )
+
+                    iconMenu.addItem(sizeItem)
+
+                }
+
+                let iconItem = NSMenuItem(title: "Icon Size", action: nil, keyEquivalent: "")
+                iconItem.submenu = iconMenu
+                dockMenu.addItem(iconItem)
+
+                let root = NSMenuItem(title: dock.name, action: nil, keyEquivalent: "")
+                root.submenu = dockMenu
+
+                menu.addItem(root)
             }
         }
 
@@ -130,6 +174,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLockPositions() {
         _lockPositions.toggle()
+        rebuildMenu()
+    }
+
+    @objc private func changeIconSize(_ sender: NSMenuItem) {
+        guard let selection = sender.representedObject as? IconSizeSelection,
+            let index = configManager.config.docks.firstIndex(where: { $0.id == selection.dockID })
+        else {
+            return
+        }
+
+        configManager.config.docks[index].iconSize = selection.size
+        configManager.save()
+
+        if let panel = dockPanels[selection.dockID] {
+            panel.close()
+            dockPanels.removeValue(forKey: selection.dockID)
+        }
+
+        showDock(configManager.config.docks[index])
         rebuildMenu()
     }
 
