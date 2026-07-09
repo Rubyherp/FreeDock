@@ -2,6 +2,7 @@ import Cocoa
 import SwiftUI
 
 @main
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var dockPanels: [UUID: DockPanel] = [:]
@@ -101,16 +102,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showDock(_ config: DockConfig) {
-        let rect = NSRect(origin: config.position, size: NSSize(width: 280, height: 64))
+        let rect = NSRect(origin: config.position,
+                          size: NSSize(width: 400, height: 70))
         let panel = DockPanel(dockID: config.id, contentRect: rect)
         panel.clampToVisibleFrame()
-        panel.setContentView(
-            ZStack {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                Text("Drag apps here").foregroundColor(.secondary).font(.caption)
-            }
-            .frame(minWidth: 120, minHeight: 40)
+
+        let dockID = config.id
+        let content = DockContentView(
+            items: Binding(
+                get: { self.configManager.config.docks.first(where: { $0.id == dockID })?.items ?? [] },
+                set: { newItems in
+                    guard let idx = self.configManager.config.docks.firstIndex(where: { $0.id == dockID }) else { return }
+                    self.configManager.config.docks[idx].items = newItems
+                }
+            ),
+            orientation: config.orientation,
+            iconSize: config.iconSize,
+            onItemsChanged: { _ in self.configManager.save() },
+            onAppLaunch: { item in NSWorkspace.shared.open(URL(fileURLWithPath: item.appPath)) }
         )
+
+        panel.setContentView(content)
         panel.orderFront(nil)
         dockPanels[config.id] = panel
     }
