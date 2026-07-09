@@ -125,6 +125,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
+    private let snapDistance: CGFloat = 15
+
+    private func snapFrame(_ frame: NSRect) -> NSRect {
+        guard let screen = NSScreen.main else { return frame }
+
+        let visible = screen.visibleFrame
+        var snapped = frame
+
+        // Left
+        if abs(frame.minX - visible.minX) < snapDistance {
+            snapped.origin.x = visible.minX
+        }
+
+        // Right
+        if abs(frame.maxX - visible.maxX) < snapDistance {
+            snapped.origin.x = visible.maxX - frame.width
+        }
+
+        // Bottom
+        if abs(frame.minY - visible.minY) < snapDistance {
+            snapped.origin.y = visible.minY
+        }
+
+        // Top
+        if abs(frame.maxY - visible.maxY) < snapDistance {
+            snapped.origin.y = visible.maxY - frame.height
+        }
+
+        return snapped
+    }
+
     @objc private func newHorizontalDock() { createDock(orientation: .horizontal) }
     @objc private func newVerticalDock() { createDock(orientation: .vertical) }
 
@@ -286,8 +317,16 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidMove(_ panel: DockPanel) {
+        let snapped = snapFrame(panel.frame)
+
+        if snapped.origin != panel.frame.origin {
+            panel.setFrame(snapped, display: true, animate: true)
+        }
+
         guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
-        configManager.config.docks[idx].position = panel.frame.origin
+
+        configManager.config.docks[idx].position = snapped.origin
         configManager.save()
+
     }
 }
