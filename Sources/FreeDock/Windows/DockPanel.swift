@@ -3,6 +3,7 @@ import SwiftUI
 
 class DockPanel: NSPanel {
     let dockID: UUID
+    weak var dockDelegate: DockPanelDelegate?
 
     init(dockID: UUID, contentRect: NSRect) {
         self.dockID = dockID
@@ -37,6 +38,14 @@ class DockPanel: NSPanel {
         contentView = container
         container.setFrameSize(hosting.intrinsicContentSize)
         setContentSize(container.frame.size)
+    }
+
+    func addDragHandle() {
+        guard let container = contentView else { return }
+        let handle = DockDragHandleView(frame: container.bounds)
+        handle.autoresizingMask = [.width, .height]
+        handle.dockPanel = self
+        container.addSubview(handle)
     }
 
     /// Prevent docks from landing off-screen (e.g., after monitor disconnect)

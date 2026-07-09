@@ -123,6 +123,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         panel.setContentView(content)
+        panel.dockDelegate = self
+        panel.addDragHandle()
         panel.orderFront(nil)
         dockPanels[config.id] = panel
     }
@@ -136,5 +138,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { continue }
             configManager.config.docks[idx].position = panel.frame.origin
         }
+    }
+}
+
+extension AppDelegate: DockPanelDelegate {
+    var lockPositions: Bool {
+        get { _lockPositions }
+        set { _lockPositions = newValue }
+    }
+
+    func dockPanelDidMove(_ panel: DockPanel) {
+        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
+        configManager.config.docks[idx].position = panel.frame.origin
+        configManager.save()
     }
 }
