@@ -23,21 +23,22 @@ struct DockItemView: View {
                 .resizable()
                 .frame(width: iconSize, height: iconSize)
                 .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
-            if isRunning {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 5, height: 5)
-                    .shadow(color: .black.opacity(0.2), radius: 1)
-            } else {
-                Circle()
-                    .fill(Color.clear)
-                    .frame(width: 6, height: 6)
-            }
+
+            Circle()
+                .fill(.white)
+                .frame(width: 5, height: 5)
+                .opacity(isRunning ? 1 : 0)
 
             if let label = item.label {
-                Text(label).font(.caption2).foregroundColor(.secondary).lineLimit(1).truncationMode(.tail).frame(maxWidth: iconSize + 12)
+                Text(label)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: iconSize + 12)
             }
         }
+
         .padding(4)
         .scaleEffect(isHovering ? 1.20 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
