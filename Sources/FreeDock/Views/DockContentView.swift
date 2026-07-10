@@ -14,6 +14,8 @@ struct DockContentView: View {
     @State private var draggedItem: DockItem?
     @State private var displayedItems: [DockItem]?
     @State private var hoveredItem: UUID?
+    @State private var dropTargetItem: UUID?
+    @State private var trailingTargeted = false
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
@@ -39,7 +41,12 @@ struct DockContentView: View {
             }
             .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
             .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
+                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
+                    return handleFileDrop(providers)
+                }
+                return false
+            }
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
@@ -69,7 +76,12 @@ struct DockContentView: View {
             }
             .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
             .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
+                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
+                    return handleFileDrop(providers)
+                }
+                return false
+            }
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
@@ -94,11 +106,22 @@ struct DockContentView: View {
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
-                    DockSeparatorView(orientation: orientation)
-                        .frame(
-                            width: orientation == .horizontal ? 16 : iconSize + 20,
-                            height: orientation == .horizontal ? iconSize + 20 : 16
-                        )
+                    DockSeparatorView(orientation: orientation, iconSize: iconSize)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Remove Separator", role: .destructive) {
+                                var updated = displayedItems ?? items
+                                updated.removeAll { $0.id == item.id }
+                                commitItems(updated)
+                            }
+                        }
+                        .onDrag {
+                            draggedItem = item
+                            return NSItemProvider(object: item.id.uuidString as NSString)
+                        }
+                        .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                            handleReorder(providers, targetItem: item)
+                        }
                 } else {
                     DockItemView(
                         item: item,
@@ -113,20 +136,72 @@ struct DockContentView: View {
                         width: iconSize + 20,
                         height: iconSize + 20
                     )
+                    .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.accentColor.opacity(dropTargetItem == item.id ? 0.8 : 0), lineWidth: 2)
+                    )
+                    .onDrag {
+                        draggedItem = item
+                        return NSItemProvider(object: item.id.uuidString as NSString)
+                    } preview: {
+                        Image(nsImage: AppInfo.resolve(from: item.appPath).icon)
+                            .resizable()
+                            .frame(width: iconSize, height: iconSize)
+                            .opacity(0.85)
+                    }
+                    .onDrop(of: [.plainText], isTargeted: Binding(
+                        get: { dropTargetItem == item.id },
+                        set: { dropTargetItem = $0 ? item.id : nil }
+                    )) { providers in
+                        handleReorder(providers, targetItem: item)
+                    }
                 }
             }
+            Color.clear
+                .frame(
+                    width: orientation == .horizontal ? 32 : iconSize + 20,
+                    height: orientation == .horizontal ? iconSize + 20 : 32
+                )
+                .contentShape(Rectangle())
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
+                )
+                .onDrop(of: [.plainText], isTargeted: $trailingTargeted) { _ in
+                    var updatedItems = displayedItems ?? items
+                    guard let dragged = draggedItem,
+                          let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
+                    else { return false }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        updatedItems.move(
+                            fromOffsets: IndexSet(integer: fromIdx),
+                            toOffset: updatedItems.endIndex
+                        )
+                    }
+                    draggedItem = nil
+                    commitItems(updatedItems)
+                    return true
+                }
         }
     }
 
     struct DockSeparatorView: View {
         let orientation: Orientation
+        let iconSize: Double
         var body: some View {
-            Rectangle()
-                .fill(Color.white.opacity(0.15))
-                .frame(
-                    width: orientation == .horizontal ? 1 : 28,
-                    height: orientation == .horizontal ? 28 : 1
-                )
+            ZStack {
+                Rectangle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(
+                        width: orientation == .horizontal ? 1 : 28,
+                        height: orientation == .horizontal ? 28 : 1
+                    )
+            }
+            .frame(
+                width: orientation == .horizontal ? 16 : iconSize + 20,
+                height: orientation == .horizontal ? iconSize + 20 : 16
+            )
         }
     }
 
@@ -184,8 +259,15 @@ struct DockContentView: View {
 
     private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {
         var updatedItems = displayedItems ?? items
-        guard let dragged = draggedItem, let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }), let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }), fromIdx != toIdx else { return false }
-        withAnimation { updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx) }
+        guard
+            let dragged = draggedItem,
+            let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }),
+            let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }),
+            fromIdx != toIdx
+        else { return false }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx)
+        }
         draggedItem = nil
         commitItems(updatedItems)
         return true
