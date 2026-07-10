@@ -35,7 +35,7 @@ struct DockItemView: View {
             }
         }
         .padding(4)
-        .scaleEffect(isHovering ? 1.15 : 1.0)
+        .scaleEffect(isHovering ? 1.20 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
         .onHover { hovering in
             isHovering = hovering
