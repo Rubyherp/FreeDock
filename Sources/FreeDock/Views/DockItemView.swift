@@ -32,9 +32,12 @@ struct DockItemView: View {
                     .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
 
                 Circle()
-                    .fill(.white)
+                    .fill(Color.white)
                     .frame(width: 5, height: 5)
+                    .shadow(color: .white.opacity(0.8), radius: 3)
                     .opacity(isRunning ? 1 : 0)
+                    .scaleEffect(isRunning ? 1 : 0.3)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isRunning)
             }
         }
         .background(ScreenRectReader { screenRect = $0 })

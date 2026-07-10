@@ -15,6 +15,7 @@ struct DockContentView: View {
     @State private var displayedItems: [DockItem]?
     @State private var hoveredItem: UUID?
     @State private var dropTargetItem: UUID?
+    @State private var trailingTargeted = false
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
@@ -105,11 +106,8 @@ struct DockContentView: View {
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
-                    DockSeparatorView(orientation: orientation)
-                        .frame(
-                            width: orientation == .horizontal ? 16 : iconSize + 20,
-                            height: orientation == .horizontal ? iconSize + 20 : 16
-                        )
+                    DockSeparatorView(orientation: orientation, iconSize: iconSize)
+                        .contentShape(Rectangle())
                         .onDrop(of: [.plainText], isTargeted: nil) { providers in
                             handleReorder(providers, targetItem: item)
                         }
@@ -149,18 +147,50 @@ struct DockContentView: View {
                     }
                 }
             }
+            Color.clear
+                .frame(
+                    width: orientation == .horizontal ? 32 : iconSize + 20,
+                    height: orientation == .horizontal ? iconSize + 20 : 32
+                )
+                .contentShape(Rectangle())
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
+                )
+                .onDrop(of: [.plainText], isTargeted: $trailingTargeted) { _ in
+                    var updatedItems = displayedItems ?? items
+                    guard let dragged = draggedItem,
+                          let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
+                    else { return false }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        updatedItems.move(
+                            fromOffsets: IndexSet(integer: fromIdx),
+                            toOffset: updatedItems.endIndex
+                        )
+                    }
+                    draggedItem = nil
+                    commitItems(updatedItems)
+                    return true
+                }
         }
     }
 
     struct DockSeparatorView: View {
         let orientation: Orientation
+        let iconSize: Double
         var body: some View {
-            Rectangle()
-                .fill(Color.white.opacity(0.15))
-                .frame(
-                    width: orientation == .horizontal ? 1 : 28,
-                    height: orientation == .horizontal ? 28 : 1
-                )
+            ZStack {
+                Rectangle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(
+                        width: orientation == .horizontal ? 1 : 28,
+                        height: orientation == .horizontal ? 28 : 1
+                    )
+            }
+            .frame( // ← explicit outer frame
+                width: orientation == .horizontal ? 16 : iconSize + 20,
+                height: orientation == .horizontal ? iconSize + 20 : 16
+            )
         }
     }
 
