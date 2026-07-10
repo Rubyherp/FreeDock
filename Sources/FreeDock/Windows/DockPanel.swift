@@ -7,6 +7,7 @@ class DockPanel: NSPanel {
     weak var dockDelegate: DockPanelDelegate?
     private weak var hostingView: NSView?
     private var containerView: NSView?
+    private var hideWorkItem: DispatchWorkItem?
 
     private func enforcedSize(for intrinsicSize: NSSize) -> NSSize {
         if dockOrientation == .vertical {
@@ -29,6 +30,7 @@ class DockPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
+        alphaValue = 1.0
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
         hidesOnDeactivate = false
@@ -44,7 +46,8 @@ class DockPanel: NSPanel {
     }
 
     func setContentView<V: View>(_ view: V) {
-        let container = NSView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 70)))
+        let container = DockContainerView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 70)))
+        container.dockPanel = self
         containerView = container
 
         let hosting = NSHostingView(rootView: view)
@@ -99,5 +102,30 @@ class DockPanel: NSPanel {
         f.origin.x = min(max(f.origin.x, vf.minX), vf.maxX - f.width)
         f.origin.y = min(max(f.origin.y, vf.minY), vf.maxY - f.height)
         setFrame(f, display: true)
+    }
+
+    func scheduleAutoHide() {
+        hideWorkItem?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.20
+                self.animator().alphaValue = 0.40
+            }
+        }
+
+        hideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.0, execute: work)
+    }
+
+    func cancelAutoHide() {
+        hideWorkItem?.cancel()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.40
+            self.animator().alphaValue = 1.0
+        }
     }
 }
