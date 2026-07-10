@@ -31,6 +31,7 @@ struct DockContentView: View {
                 HStack(spacing: 0) { content } // changed to 0
                     .padding(8)
             }
+            .contentShape(Rectangle())
             .onHover { hovering in
                 if !hovering {
                     hoveredItem = nil
@@ -53,6 +54,7 @@ struct DockContentView: View {
                 VStack(spacing: 0) { content } // changed to 0
                     .padding(8)
             }
+            .contentShape(Rectangle())
             .onHover { hovering in
                 if !hovering {
                     hoveredItem = nil
@@ -76,16 +78,19 @@ struct DockContentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
         } else {
-            ForEach(0 ..< currentItems.count, id: \.self) { index in
-                let item = currentItems[index]
-
+            ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 DockItemView(
                     item: item,
                     iconSize: iconSize,
                     scale: scale(for: index, in: currentItems),
-                    hoveredItem: $hoveredItem,
                     onLaunch: { onAppLaunch(item) },
-                    onRemove: { removeItem(item) }
+                    onRemove: { removeItem(item) },
+                    hoveredItem: $hoveredItem,
+                    orientation: orientation
+                )
+                .frame(
+                    width: iconSize + 20,
+                    height: iconSize + 20
                 )
             }
         }
