@@ -5,6 +5,7 @@ class DockDragHandleView: NSView {
     var orientation: Orientation = .horizontal {
         didSet { needsLayout = true }
     }
+
     private let highlightLayer = CALayer()
     private var tracking: NSTrackingArea?
 
@@ -40,7 +41,9 @@ class DockDragHandleView: NSView {
         updateAppearance(isHovered: false)
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder _: NSCoder) {
+        nil
+    }
 
     override func updateTrackingAreas() {
         if let tracking {
@@ -63,16 +66,31 @@ class DockDragHandleView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        // super.mouseEntered(with: event)
+        // updateAppearance(isHovered: true)
         super.mouseEntered(with: event)
         updateAppearance(isHovered: true)
+        dockPanel?.cancelAutoHide()
     }
 
     override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
+        // super.mouseExited(with: event)
+        // updateAppearance(isHovered: false)
         updateAppearance(isHovered: false)
+        guard let panel = dockPanel else {
+            super.mouseExited(with: event)
+            return
+        }
+        // Mouse may have just moved to the app icon area, not left the dock
+        if panel.frame.contains(NSEvent.mouseLocation) {
+            panel.cancelAutoHide()
+            // Don't call super — stops the event bubbling to DockContainerView
+        } else {
+            super.mouseExited(with: event)
+        }
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
         true
     }
 

@@ -5,14 +5,18 @@ struct DockItemView: View {
     let item: DockItem
     let iconSize: Double
     let scale: CGFloat
-    @Binding var hoveredItem: UUID?
     let onLaunch: () -> Void
     let onRemove: () -> Void
 
-    @State private var isHovering = false
     @State private var bundleID: String? = nil
     @State private var appInfo: AppInfo? = nil
     @ObservedObject private var monitor = RunningAppMonitor.shared
+    @State private var isHovering = false
+    /// @State private var hoverTask: DispatchWorkItem? = nil
+    @Binding var hoveredItem: UUID?
+    @State private var screenRect: NSRect = .zero
+
+    let orientation: Orientation
 
     private var isRunning: Bool {
         guard let bid = bundleID else { return false }
@@ -20,40 +24,40 @@ struct DockItemView: View {
     }
 
     var body: some View {
-        VStack(spacing: 1) {
-            Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
-                .resizable()
-                .frame(width: iconSize, height: iconSize)
-                .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
+        ZStack {
+            VStack(spacing: 1) {
+                Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
+                    .resizable()
+                    .frame(width: iconSize, height: iconSize)
+                    .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
 
-            Circle()
-                .fill(.white)
-                .frame(width: 5, height: 5)
-                .opacity(isRunning ? 1 : 0)
-
-            if let label = item.label {
-                Text(label)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: iconSize + 12)
+                Circle()
+                    .fill(.white)
+                    .frame(width: 5, height: 5)
+                    .opacity(isRunning ? 1 : 0)
+            }
+        }
+        .background(ScreenRectReader { screenRect = $0 })
+        .onHover { hovering in
+            if hovering, let label = item.label {
+                isHovering = true
+                hoveredItem = item.id
+                NSCursor.pointingHand.push()
+                TooltipManager.shared.show(label, at: screenRect, orientation: orientation)
+            } else {
+                isHovering = false
+                if hoveredItem == item.id {
+                    hoveredItem = nil
+                }
+                NSCursor.pop()
+                TooltipManager.shared.hide()
             }
         }
 
+        .animation(.easeOut(duration: 0.15), value: isHovering)
         .padding(4)
         .scaleEffect(scale)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: scale)
-        .onHover { hovering in
-            isHovering = hovering
-            hoveredItem = hovering ? item.id : nil
-
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
         .offset(y: isHovering ? -2 : 0)
         .shadow(radius: isHovering ? 5 : 2)
         .onTapGesture { onLaunch() }
