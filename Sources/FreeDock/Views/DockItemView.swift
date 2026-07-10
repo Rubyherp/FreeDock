@@ -4,6 +4,8 @@ import SwiftUI
 struct DockItemView: View {
     let item: DockItem
     let iconSize: Double
+    let scale: CGFloat
+    @Binding var hoveredItem: UUID?
     let onLaunch: () -> Void
     let onRemove: () -> Void
 
@@ -40,19 +42,20 @@ struct DockItemView: View {
         }
 
         .padding(4)
-        .scaleEffect(isHovering ? 1.20 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
+        .scaleEffect(scale)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: scale)
         .onHover { hovering in
             isHovering = hovering
+            hoveredItem = hovering ? item.id : nil
+
             if hovering {
                 NSCursor.pointingHand.push()
             } else {
                 NSCursor.pop()
             }
         }
-        .offset(y: isHovering ? -4 : 0)
-        .shadow(radius: isHovering ? 8 : 2)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
+        .offset(y: isHovering ? -2 : 0)
+        .shadow(radius: isHovering ? 5 : 2)
         .onTapGesture { onLaunch() }
         .contextMenu {
             Button("Show in Finder") { showInFinder() }

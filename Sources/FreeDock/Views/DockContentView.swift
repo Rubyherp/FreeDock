@@ -13,83 +13,62 @@ struct DockContentView: View {
     @State private var dropPulse = false
     @State private var draggedItem: DockItem?
     @State private var displayedItems: [DockItem]?
+    @State private var hoveredItem: UUID?
 
-    // private var startPadding: CGFloat {
-    //     orientation == .horizontal ? 24 : 0
-    // }
-    //
-    // private var topPadding: CGFloat {
-    //     orientation == .vertical ? 24 : 0
-    // }
+    private var currentItems: [DockItem] {
+        displayedItems ?? items
+    }
 
     var body: some View {
-    if orientation == .horizontal {
-        HStack(spacing: 0) {
-            DockDragHandleRepresentable(
-                panel: panel,
-                orientation: orientation
-            )
+        if orientation == .horizontal {
+            HStack(spacing: 0) {
+                DockDragHandleRepresentable(
+                    panel: panel,
+                    orientation: orientation
+                )
                 .frame(width: 32)
                 // .padding(.leading, 8)
-            HStack(spacing: 0) { content } // changed to 0
-                .padding(8)
-        }
-        .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-        .overlay(dropZoneHighlight)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
-        .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
-        .onAppear { displayedItems = items }
-        .onChange(of: items) { displayedItems = $0 }
-    } else {
-        VStack(spacing: 0) {
-            DockDragHandleRepresentable(
-                panel: panel,
-                orientation: orientation
-            )
+                HStack(spacing: 0) { content } // changed to 0
+                    .padding(8)
+            }
+            .onHover { hovering in
+                if !hovering {
+                    hoveredItem = nil
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
+            .overlay(dropZoneHighlight)
+            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+            .onAppear { displayedItems = items }
+            .onChange(of: items) { displayedItems = $0 }
+        } else {
+            VStack(spacing: 0) {
+                DockDragHandleRepresentable(
+                    panel: panel,
+                    orientation: orientation
+                )
                 .frame(height: 32)
                 .padding(.top, 8)
-            VStack(spacing: 0) { content } // changed to 0
-                .padding(8)
+                VStack(spacing: 0) { content } // changed to 0
+                    .padding(8)
+            }
+            .onHover { hovering in
+                if !hovering {
+                    hoveredItem = nil
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
+            .overlay(dropZoneHighlight)
+            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+            .onAppear { displayedItems = items }
+            .onChange(of: items) { displayedItems = $0 }
         }
-        .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-        .overlay(dropZoneHighlight)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
-        .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
-        .onAppear { displayedItems = items }
-        .onChange(of: items) { displayedItems = $0 }
     }
-}
-
-    // var body: some View {
-    //
-    //     Group {
-    //         if orientation == .horizontal {
-    //             HStack(spacing: 6) {
-    //                 DockGripView(orientation: orientation)
-    //                 content
-    //             }
-    //         } else {
-    //             VStack(spacing: 6) {
-    //                 DockGripView(orientation: orientation)
-    //                 content
-    //             }
-    //         }
-    //     }
-    //     .padding(8)
-    //     .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-    //     .overlay(RoundedRectangle(cornerRadius: 14).stroke(isTargeted ? Color.accentColor : Color.clear, lineWidth: 2))
-    //     .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
-    //     // Group {
-    //     //     if orientation == .horizontal { HStack(spacing: 6) { content } }
-    //     //     else { VStack(spacing: 6) { content } }
-    //     // }
-    //     // .padding(.leading, startPadding)
-    //     // .padding(.top, topPadding)
-    // }
 
     @ViewBuilder
     private var content: some View {
-        let currentItems = displayedItems ?? items
         if currentItems.isEmpty {
             Text("Drag apps here")
                 .foregroundColor(.secondary)
@@ -97,11 +76,33 @@ struct DockContentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
         } else {
-            ForEach(currentItems) { item in
-                DockItemView(item: item, iconSize: iconSize, onLaunch: { onAppLaunch(item) }, onRemove: { removeItem(item) })
-                    .onDrag { draggedItem = item; return NSItemProvider(object: item.id.uuidString as NSString) }
-                    .onDrop(of: [.text], isTargeted: nil) { providers, _ in handleReorder(providers, targetItem: item) }
+            ForEach(0 ..< currentItems.count, id: \.self) { index in
+                let item = currentItems[index]
+
+                DockItemView(
+                    item: item,
+                    iconSize: iconSize,
+                    scale: scale(for: index, in: currentItems),
+                    hoveredItem: $hoveredItem,
+                    onLaunch: { onAppLaunch(item) },
+                    onRemove: { removeItem(item) }
+                )
             }
+        }
+    }
+
+    private func scale(for index: Int, in items: [DockItem]) -> CGFloat {
+        guard let hoveredItem,
+              let hoveredIndex = items.firstIndex(where: { $0.id == hoveredItem })
+        else {
+            return 1.0
+        }
+
+        switch abs(index - hoveredIndex) {
+        case 0: return 1.40
+        case 1: return 1.20
+        case 2: return 1.05
+        default: return 1.0
         }
     }
 
@@ -142,7 +143,7 @@ struct DockContentView: View {
         return true
     }
 
-    private func handleReorder(_ providers: [NSItemProvider], targetItem: DockItem) -> Bool {
+    private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {
         var updatedItems = displayedItems ?? items
         guard let dragged = draggedItem, let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }), let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }), fromIdx != toIdx else { return false }
         withAnimation { updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx) }
