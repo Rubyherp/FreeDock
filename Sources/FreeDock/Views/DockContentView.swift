@@ -14,6 +14,7 @@ struct DockContentView: View {
     @State private var draggedItem: DockItem?
     @State private var displayedItems: [DockItem]?
     @State private var hoveredItem: UUID?
+    @State private var dropTargetItem: UUID?
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
@@ -127,11 +128,23 @@ struct DockContentView: View {
                         height: iconSize + 20
                     )
                     .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.accentColor.opacity(dropTargetItem == item.id ? 0.8 : 0), lineWidth: 2)
+                    )
                     .onDrag {
                         draggedItem = item
                         return NSItemProvider(object: item.id.uuidString as NSString)
+                    } preview: {
+                        Image(nsImage: AppInfo.resolve(from: item.appPath).icon)
+                            .resizable()
+                            .frame(width: iconSize, height: iconSize)
+                            .opacity(0.85)
                     }
-                    .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                    .onDrop(of: [.plainText], isTargeted: Binding(
+                        get: { dropTargetItem == item.id },
+                        set: { dropTargetItem = $0 ? item.id : nil }
+                    )) { providers in
                         handleReorder(providers, targetItem: item)
                     }
                 }
