@@ -39,7 +39,12 @@ struct DockContentView: View {
             }
             .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
             .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
+                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
+                    return handleFileDrop(providers)
+                }
+                return false
+            }
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
@@ -69,7 +74,12 @@ struct DockContentView: View {
             }
             .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
             .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in handleFileDrop(providers) }
+            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
+                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
+                    return handleFileDrop(providers)
+                }
+                return false
+            }
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
@@ -99,6 +109,9 @@ struct DockContentView: View {
                             width: orientation == .horizontal ? 16 : iconSize + 20,
                             height: orientation == .horizontal ? iconSize + 20 : 16
                         )
+                        .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                            handleReorder(providers, targetItem: item)
+                        }
                 } else {
                     DockItemView(
                         item: item,
@@ -113,6 +126,14 @@ struct DockContentView: View {
                         width: iconSize + 20,
                         height: iconSize + 20
                     )
+                    .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
+                    .onDrag {
+                        draggedItem = item
+                        return NSItemProvider(object: item.id.uuidString as NSString)
+                    }
+                    .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                        handleReorder(providers, targetItem: item)
+                    }
                 }
             }
         }
@@ -184,8 +205,15 @@ struct DockContentView: View {
 
     private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {
         var updatedItems = displayedItems ?? items
-        guard let dragged = draggedItem, let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }), let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }), fromIdx != toIdx else { return false }
-        withAnimation { updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx) }
+        guard
+            let dragged = draggedItem,
+            let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }),
+            let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }),
+            fromIdx != toIdx
+        else { return false }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx)
+        }
         draggedItem = nil
         commitItems(updatedItems)
         return true
