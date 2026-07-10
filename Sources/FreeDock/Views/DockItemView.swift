@@ -18,16 +18,20 @@ struct DockItemView: View {
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            ZStack(alignment: .bottomTrailing) {
-                Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
-                    .resizable()
-                    .frame(width: iconSize, height: iconSize)
-                    .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
-
-                if isRunning {
-                    Circle().fill(.green).frame(width: 7, height: 7).shadow(color: .green.opacity(0.6), radius: 2).offset(x: -1, y: -1)
-                }
+        VStack(spacing: 1) {
+            Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
+                .resizable()
+                .frame(width: iconSize, height: iconSize)
+                .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
+            if isRunning {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: .black.opacity(0.2), radius: 1)
+            } else {
+                Circle()
+                    .fill(Color.clear)
+                    .frame(width: 6, height: 6)
             }
 
             if let label = item.label {
