@@ -1,5 +1,5 @@
-import SwiftUI
 import Cocoa
+import SwiftUI
 
 struct DockItemView: View {
     let item: DockItem
@@ -35,13 +35,19 @@ struct DockItemView: View {
             }
         }
         .padding(4)
-        .scaleEffect(isHovering ? 1.08 : 1.0)
-        .animation(.easeInOut(duration: 0.12), value: isHovering)
-        .onHover { h in
-            isHovering = h
-            if h { NSCursor.pointingHand.push() }
-            else { NSCursor.pop() }
+        .scaleEffect(isHovering ? 1.15 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
+        .onHover { hovering in
+            isHovering = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
+        .offset(y: isHovering ? -4 : 0)
+        .shadow(radius: isHovering ? 8 : 2)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovering)
         .onTapGesture { onLaunch() }
         .contextMenu {
             Button("Show in Finder") { showInFinder() }
@@ -50,8 +56,12 @@ struct DockItemView: View {
             Button("Remove from Dock", role: .destructive) { onRemove() }
         }
         .onAppear {
-            if appInfo == nil { appInfo = AppInfo.resolve(from: item.appPath) }
-            if bundleID == nil { bundleID = AppInfo.resolveBundleID(from: item.appPath) }
+            if appInfo == nil {
+                appInfo = AppInfo.resolve(from: item.appPath)
+            }
+            if bundleID == nil {
+                bundleID = AppInfo.resolveBundleID(from: item.appPath)
+            }
         }
     }
 
