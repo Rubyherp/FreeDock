@@ -12,9 +12,9 @@ struct DockItemView: View {
     @State private var appInfo: AppInfo? = nil
     @ObservedObject private var monitor = RunningAppMonitor.shared
     @State private var isHovering = false
-    /// @State private var hoverTask: DispatchWorkItem? = nil
     @Binding var hoveredItem: UUID?
     @State private var screenRect: NSRect = .zero
+    @State private var bouncing = false
 
     let orientation: Orientation
 
@@ -57,10 +57,15 @@ struct DockItemView: View {
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .padding(4)
         .scaleEffect(scale)
+        .offset(y: bouncing ? -8 : 0)
+        .animation(.interpolatingSpring(stiffness: 300, damping: 8), value: bouncing)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: scale)
         .offset(y: isHovering ? -2 : 0)
         .shadow(radius: isHovering ? 5 : 2)
-        .onTapGesture { onLaunch() }
+        .onTapGesture {
+            bounce()
+            onLaunch()
+        }
         .contextMenu {
             Button("Show in Finder") { showInFinder() }
             Button("Copy Path") { copyPath() }
@@ -73,6 +78,20 @@ struct DockItemView: View {
             }
             if bundleID == nil {
                 bundleID = AppInfo.resolveBundleID(from: item.appPath)
+            }
+        }
+    }
+
+    private func bounce() {
+        guard !bouncing else { return }
+        bouncing = true
+        withAnimation(.interpolatingSpring(stiffness: 300, damping: 8)) {
+            bouncing = true
+        }
+        // 3 bounces worth of time then reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            withAnimation(.spring()) {
+                bouncing = false
             }
         }
     }
