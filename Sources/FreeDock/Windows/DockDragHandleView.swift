@@ -62,7 +62,26 @@ class DockDragHandleView: NSView {
 
     override func layout() {
         super.layout()
-        highlightLayer.frame = stripRect.insetBy(dx: 2, dy: 2)
+        // highlightLayer.frame = stripRect.insetBy(dx: 2, dy: 2)
+        let pillW: CGFloat = 3
+        let pillH: CGFloat = 22
+        if orientation == .horizontal {
+            highlightLayer.frame = NSRect(
+                x: (stripRect.width - pillW) / 2 + stripRect.minX,
+                y: (bounds.height - pillH) / 2,
+                width: pillW,
+                height: pillH
+            )
+            highlightLayer.cornerRadius = pillW / 2
+        } else {
+            highlightLayer.frame = NSRect(
+                x: (bounds.width - pillH) / 2,
+                y: (stripRect.height - pillW) / 2 + stripRect.minY,
+                width: pillH,
+                height: pillW
+            )
+            highlightLayer.cornerRadius = pillW / 2
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -103,15 +122,22 @@ class DockDragHandleView: NSView {
 
     private func updateAppearance(isHovered: Bool) {
         let locked = dockPanel?.dockDelegate?.lockPositions ?? false
-        let fillAlpha: CGFloat
-        if locked {
-            fillAlpha = 0.06
-        } else {
-            fillAlpha = isHovered ? 0.30 : 0.20
-        }
-        highlightLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(fillAlpha).cgColor
-        highlightLayer.borderColor = NSColor.white.withAlphaComponent(locked ? 0.12 : 0.38).cgColor
-        alphaValue = locked ? 0.6 : 1.0
+        highlightLayer.backgroundColor = NSColor.white
+            .withAlphaComponent(isHovered ? 0.55 : 0.25)
+            .cgColor
+        highlightLayer.borderColor = NSColor.white
+            .withAlphaComponent(isHovered ? 0.70 : 0.35)
+            .cgColor
+        alphaValue = locked ? 0.4 : 1.0
+        // let fillAlpha: CGFloat
+        // if locked {
+        //     fillAlpha = 0.06
+        // } else {
+        //     fillAlpha = isHovered ? 0.30 : 0.20
+        // }
+        // highlightLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(fillAlpha).cgColor
+        // highlightLayer.borderColor = NSColor.white.withAlphaComponent(locked ? 0.12 : 0.38).cgColor
+        // alphaValue = locked ? 0.6 : 1.0
     }
 
     override func mouseDown(with event: NSEvent) {
