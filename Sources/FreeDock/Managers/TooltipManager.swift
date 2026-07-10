@@ -5,16 +5,33 @@ import SwiftUI
 final class TooltipManager {
     static let shared = TooltipManager()
     private var panel: NSPanel?
+    private var showTask: DispatchWorkItem?
 
     func show(_ text: String, at screenRect: NSRect, orientation: Orientation) {
-        hide()
+        showTask?.cancel()
+        let task = DispatchWorkItem { [weak self] in
+            self?.present(text, at: screenRect, orientation: orientation)
+        }
+        showTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: task)
+    }
+
+    func hide() {
+        showTask?.cancel()
+        showTask = nil
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
+    private func present(_ text: String, at screenRect: NSRect, orientation: Orientation) {
+        panel?.orderOut(nil)
+        panel = nil
         let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
         p.level = .popUpMenu
         p.ignoresMouseEvents = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-
         let host = NSHostingView(rootView:
             Text(text)
                 .font(.caption)
@@ -27,7 +44,6 @@ final class TooltipManager {
                 .shadow(radius: 5))
         let size = host.fittingSize
         p.contentView = host
-
         let origin: NSPoint
         switch orientation {
         case .horizontal:
@@ -38,11 +54,6 @@ final class TooltipManager {
         p.setFrame(NSRect(origin: origin, size: size), display: false)
         p.orderFront(nil)
         panel = p
-    }
-
-    func hide() {
-        panel?.orderOut(nil)
-        panel = nil
     }
 }
 
