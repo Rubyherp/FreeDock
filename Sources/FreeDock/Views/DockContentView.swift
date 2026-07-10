@@ -43,6 +43,13 @@ struct DockContentView: View {
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
+            .contextMenu {
+                Button("Add Separator") {
+                    var updated = displayedItems ?? items
+                    updated.append(.separator())
+                    commitItems(updated)
+                }
+            }
         } else {
             VStack(spacing: 0) {
                 DockDragHandleRepresentable(
@@ -66,6 +73,13 @@ struct DockContentView: View {
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
+            .contextMenu {
+                Button("Add Separator") {
+                    var updated = displayedItems ?? items
+                    updated.append(.separator())
+                    commitItems(updated)
+                }
+            }
         }
     }
 
@@ -79,20 +93,40 @@ struct DockContentView: View {
                 .padding(.vertical, 6)
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
-                DockItemView(
-                    item: item,
-                    iconSize: iconSize,
-                    scale: scale(for: index, in: currentItems),
-                    onLaunch: { onAppLaunch(item) },
-                    onRemove: { removeItem(item) },
-                    hoveredItem: $hoveredItem,
-                    orientation: orientation
-                )
-                .frame(
-                    width: iconSize + 20,
-                    height: iconSize + 20
-                )
+                if item.isSeparator {
+                    DockSeparatorView(orientation: orientation)
+                        .frame(
+                            width: orientation == .horizontal ? 16 : iconSize + 20,
+                            height: orientation == .horizontal ? iconSize + 20 : 16
+                        )
+                } else {
+                    DockItemView(
+                        item: item,
+                        iconSize: iconSize,
+                        scale: scale(for: index, in: currentItems),
+                        onLaunch: { onAppLaunch(item) },
+                        onRemove: { removeItem(item) },
+                        hoveredItem: $hoveredItem,
+                        orientation: orientation
+                    )
+                    .frame(
+                        width: iconSize + 20,
+                        height: iconSize + 20
+                    )
+                }
             }
+        }
+    }
+
+    struct DockSeparatorView: View {
+        let orientation: Orientation
+        var body: some View {
+            Rectangle()
+                .fill(Color.white.opacity(0.15))
+                .frame(
+                    width: orientation == .horizontal ? 1 : 28,
+                    height: orientation == .horizontal ? 28 : 1
+                )
         }
     }
 
