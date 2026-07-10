@@ -108,6 +108,17 @@ struct DockContentView: View {
                 if item.isSeparator {
                     DockSeparatorView(orientation: orientation, iconSize: iconSize)
                         .contentShape(Rectangle())
+                        .contextMenu {
+                            Button("Remove Separator", role: .destructive) {
+                                var updated = displayedItems ?? items
+                                updated.removeAll { $0.id == item.id }
+                                commitItems(updated)
+                            }
+                        }
+                        .onDrag {
+                            draggedItem = item
+                            return NSItemProvider(object: item.id.uuidString as NSString)
+                        }
                         .onDrop(of: [.plainText], isTargeted: nil) { providers in
                             handleReorder(providers, targetItem: item)
                         }
@@ -187,7 +198,7 @@ struct DockContentView: View {
                         height: orientation == .horizontal ? 28 : 1
                     )
             }
-            .frame( // ← explicit outer frame
+            .frame(
                 width: orientation == .horizontal ? 16 : iconSize + 20,
                 height: orientation == .horizontal ? iconSize + 20 : 16
             )
