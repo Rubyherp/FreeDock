@@ -11,14 +11,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var _lockPositions = false
 
-    
     private struct IconSizeSelection {
         let dockID: UUID
         let size: Double
     }
 
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "FreeDock") {
             statusItem?.button?.image = image
@@ -33,7 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationWillTerminate(_: Notification) {
         saveAllPositions()
         configManager.saveImmediately()
     }
@@ -51,7 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
             for dock in configManager.config.docks {
                 let dockMenu = NSMenu()
-                
+
                 // rename dock
                 let renameItem = NSMenuItem(
                     title: "Rename…",
@@ -79,8 +77,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 for size in [16.0, 24.0, 32.0, 48.0, 64.0] {
                     let sizeItem = NSMenuItem(
-                        title: "\(Int(size)) px", 
-                        action: #selector(changeIconSize(_:)), 
+                        title: "\(Int(size)) px",
+                        action: #selector(changeIconSize(_:)),
                         keyEquivalent: ""
                     )
 
@@ -91,7 +89,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     )
 
                     iconMenu.addItem(sizeItem)
-
                 }
 
                 let iconItem = NSMenuItem(title: "Icon Size", action: nil, keyEquivalent: "")
@@ -156,8 +153,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return snapped
     }
 
-    @objc private func newHorizontalDock() { createDock(orientation: .horizontal) }
-    @objc private func newVerticalDock() { createDock(orientation: .vertical) }
+    @objc private func newHorizontalDock() {
+        createDock(orientation: .horizontal)
+    }
+
+    @objc private func newVerticalDock() {
+        createDock(orientation: .vertical)
+    }
 
     private var defaultDockPosition: CGPoint {
         let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
@@ -187,7 +189,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "/Applications/Google Chrome.app",
             "/Applications/Calculator.app",
             "/Applications/Notes.app",
-            "/System/Applications/Utilities/Terminal.app"
+            "/System/Applications/Utilities/Terminal.app",
         ]
         .filter { FileManager.default.fileExists(atPath: $0) }
         .prefix(4)
@@ -247,7 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func changeIconSize(_ sender: NSMenuItem) {
         guard let selection = sender.representedObject as? IconSizeSelection,
-            let index = configManager.config.docks.firstIndex(where: { $0.id == selection.dockID })
+              let index = configManager.config.docks.firstIndex(where: { $0.id == selection.dockID })
         else {
             return
         }
@@ -299,7 +301,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreDocks() {
-        for dock in configManager.config.docks { showDock(dock) }
+        for dock in configManager.config.docks {
+            showDock(dock)
+        }
     }
 
     private func saveAllPositions() {
@@ -327,6 +331,5 @@ extension AppDelegate: DockPanelDelegate {
 
         configManager.config.docks[idx].position = snapped.origin
         configManager.save()
-
     }
 }
