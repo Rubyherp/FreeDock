@@ -23,6 +23,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             statusItem?.button?.title = "FD"
         }
+
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL)
+        {
+            NSApp.applicationIconImage = icon
+        }
+
         rebuildMenu()
         restoreDocks()
         if configManager.config.docks.isEmpty {
@@ -226,6 +233,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
               let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
 
         let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
         alert.messageText = "Rename Dock"
         alert.informativeText = "Enter a new name for the dock:"
 
