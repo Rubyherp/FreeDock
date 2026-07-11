@@ -117,7 +117,7 @@ class DockPanel: NSPanel {
         }
 
         hideWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     func cancelAutoHide() {

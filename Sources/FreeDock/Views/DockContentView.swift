@@ -29,8 +29,7 @@ struct DockContentView: View {
                     orientation: orientation
                 )
                 .frame(width: 32)
-                // .padding(.leading, 8)
-                HStack(spacing: 0) { content } // changed to 0
+                HStack(spacing: 0) { content }
                     .padding(8)
             }
             .contentShape(Rectangle())
@@ -65,7 +64,7 @@ struct DockContentView: View {
                 )
                 .frame(height: 32)
                 .padding(.top, 8)
-                VStack(spacing: 0) { content } // changed to 0
+                VStack(spacing: 0) { content }
                     .padding(8)
             }
             .contentShape(Rectangle())
@@ -285,17 +284,5 @@ struct DockContentView: View {
         displayedItems = updatedItems
         items = updatedItems
         onItemsChanged(updatedItems)
-    }
-}
-
-struct DockGripView: View {
-    let orientation: Orientation
-    var body: some View {
-        RoundedRectangle(cornerRadius: 2)
-            .fill(Color(nsColor: .separatorColor).opacity(0.3))
-            .frame(
-                width: orientation == .horizontal ? 3 : 36,
-                height: orientation == .horizontal ? 36 : 3
-            )
     }
 }

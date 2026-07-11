@@ -57,7 +57,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for dock in configManager.config.docks {
                 let dockMenu = NSMenu()
 
-                // rename dock
                 let renameItem = NSMenuItem(
                     title: "Rename…",
                     action: #selector(renameDock(_:)),
@@ -68,7 +67,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 dockMenu.addItem(.separator())
 
-                // show/hide toggle
                 let toggle = NSMenuItem(
                     title: dockPanels[dock.id] != nil ? "Hide Dock" : "Show Dock",
                     action: #selector(toggleDock(_:)),
@@ -79,7 +77,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 dockMenu.addItem(.separator())
 
-                // Icon size submenu
                 let iconMenu = NSMenu()
 
                 for size in [16.0, 24.0, 32.0, 48.0, 64.0] {
@@ -137,22 +134,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let visible = screen.visibleFrame
         var snapped = frame
 
-        // Left
         if abs(frame.minX - visible.minX) < snapDistance {
             snapped.origin.x = visible.minX
         }
 
-        // Right
         if abs(frame.maxX - visible.maxX) < snapDistance {
             snapped.origin.x = visible.maxX - frame.width
         }
 
-        // Bottom
         if abs(frame.minY - visible.minY) < snapDistance {
             snapped.origin.y = visible.minY
         }
 
-        // Top
         if abs(frame.maxY - visible.maxY) < snapDistance {
             snapped.origin.y = visible.maxY - frame.height
         }
@@ -302,7 +295,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.dockOrientation = config.orientation
         panel.setContentView(content)
         panel.dockDelegate = self
-        // panel.addDragHandle(orientation: config.orientation)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         dockPanels[config.id] = panel

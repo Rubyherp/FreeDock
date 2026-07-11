@@ -26,7 +26,6 @@ class DockDragHandleView: NSView {
         return NSRect(
             x: edgeInset,
             y: edgeInset,
-            // y: max(0, bounds.height - edgeInset - hitHeight),
             width: max(0, bounds.width - edgeInset * 2),
             height: hitHeight
         )
@@ -62,7 +61,6 @@ class DockDragHandleView: NSView {
 
     override func layout() {
         super.layout()
-        // highlightLayer.frame = stripRect.insetBy(dx: 2, dy: 2)
         let pillW: CGFloat = 3
         let pillH: CGFloat = 22
         if orientation == .horizontal {
@@ -85,25 +83,19 @@ class DockDragHandleView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        // super.mouseEntered(with: event)
-        // updateAppearance(isHovered: true)
         super.mouseEntered(with: event)
         updateAppearance(isHovered: true)
         dockPanel?.cancelAutoHide()
     }
 
     override func mouseExited(with event: NSEvent) {
-        // super.mouseExited(with: event)
-        // updateAppearance(isHovered: false)
         updateAppearance(isHovered: false)
         guard let panel = dockPanel else {
             super.mouseExited(with: event)
             return
         }
-        // Mouse may have just moved to the app icon area, not left the dock
         if panel.frame.contains(NSEvent.mouseLocation) {
             panel.cancelAutoHide()
-            // Don't call super — stops the event bubbling to DockContainerView
         } else {
             super.mouseExited(with: event)
         }
@@ -129,15 +121,6 @@ class DockDragHandleView: NSView {
             .withAlphaComponent(isHovered ? 0.70 : 0.35)
             .cgColor
         alphaValue = locked ? 0.4 : 1.0
-        // let fillAlpha: CGFloat
-        // if locked {
-        //     fillAlpha = 0.06
-        // } else {
-        //     fillAlpha = isHovered ? 0.30 : 0.20
-        // }
-        // highlightLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(fillAlpha).cgColor
-        // highlightLayer.borderColor = NSColor.white.withAlphaComponent(locked ? 0.12 : 0.38).cgColor
-        // alphaValue = locked ? 0.6 : 1.0
     }
 
     override func mouseDown(with event: NSEvent) {
