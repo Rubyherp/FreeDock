@@ -8,3 +8,6 @@ build/
 archive/
 .superpowers/
 docs/superpowers/
+/Resources/config-*.png
+/Resources/menu*.png
+/Resources/demo-recording.mov
