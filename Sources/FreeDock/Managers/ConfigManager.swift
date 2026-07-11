@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 class ConfigManager {
     let configPath: URL
@@ -45,7 +46,7 @@ class ConfigManager {
             }
             try data.write(to: configPath, options: .atomic)
         } catch {
-            print("[FreeDock] Config save error: \(error)")
+            os_log(.error, "[FreeDock] Config save error: %{public}@", error.localizedDescription)
         }
     }
 }

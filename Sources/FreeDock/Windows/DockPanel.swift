@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import OSLog
 
 class DockPanel: NSPanel {
     let dockID: UUID
@@ -81,7 +82,7 @@ class DockPanel: NSPanel {
 
     func addDragHandle(orientation: Orientation) {
         guard let container = containerView else {
-            print("containerView is nil")
+            os_log(.error, "containerView is nil")
             return
         }
         let handle = DockDragHandleView(frame: container.bounds)
