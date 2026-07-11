@@ -25,6 +25,26 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 
 ---
 
+<p align="center">
+  <a href="https://github.com/Rubyherp/FreeDock/stargazers">
+    <img src="https://img.shields.io/github/stars/Rubyherp/FreeDock?style=for-the-badge&logo=github&label=Star%20on%20GitHub" alt="GitHub stars">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://www.buymeacoffee.com/thksalot">
+    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support%20My%20Education-orange?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/thksalot">
+    <img src="qr-code.png" width="160" alt="Buy Me a Coffee QR code">
+  </a>
+  <br>
+  <strong>If FreeDock saves you time, consider supporting my education.</strong> ☕
+</p>
+
+---
+
 ## Features
 
 - **Unlimited docks** — Create as many docks as you need, on any screen
