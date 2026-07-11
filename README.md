@@ -1,43 +1,93 @@
-# FreeDock
+<p align="center">
+  <img src="docs/logo.png" width="128" alt="FreeDock">
+</p>
 
-Multiple floating docks for macOS. Free and open-source.
+<h1 align="center">FreeDock</h1>
+
+<p align="center">
+  <strong>Multiple floating docks for macOS.</strong>
+  <br>
+  Free. Open-source. Native.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-12+-brightgreen" alt="macOS 12+">
+  <img src="https://img.shields.io/badge/Swift-6.0-orange" alt="Swift 6.0">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+  <img src="https://img.shields.io/badge/Platform-Apple_Silicon_%7C_Intel-blue" alt="Apple Silicon | Intel">
+</p>
+
+<p align="center">
+  <img src="docs/logo.png" width="256" alt="FreeDock">
+</p>
+
+FreeDock lets you create unlimited floating docks on any macOS screen. Pin your most-used apps, organize them by project, and keep them accessible with a single click — all without touching the system Dock.
+
+---
 
 ## Features
 
-- Create unlimited floating docks on any screen
-- Drag `.app` files from Finder onto a dock to add them
-- Right-click to remove apps
-- Drag icons within a dock to reorder
-- Drag the dock's padding area to reposition it
-- Horizontal or vertical orientation
-- Running app indicator dots
-- Click to launch or switch to an app
-- Lock Dock Positions to prevent accidental moves
-- Config saved to `~/.config/freedock.json` (human-editable)
+- **Unlimited docks** — Create as many docks as you need, on any screen
+- **Drag & drop** — Drag `.app` files from Finder directly onto a dock
+- **Reorder** — Drag icons within a dock to rearrange them
+- **Horizontal or vertical** — Choose the orientation that fits your workflow
+- **Running app indicators** — See which apps are currently open at a glance
+- **Click to launch or switch** — Single-click to open an app or bring it to focus
+- **Lock positions** — Prevent accidental dock movement
+- **Persistent config** — All docks are saved to `~/.config/freedock.json`
+- **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
 
-## Requirements
+## Installation
 
-- macOS 12+
-- Xcode 15+ (for development)
+### Download
 
-## Build & Run
+Download the latest `FreeDock.app` from the [Releases](https://github.com/Rubyherp/FreeDock/releases) page, then drag it to your Applications folder.
+
+### Build from source
 
 ```bash
-git clone https://github.com/YOUR_USER/FreeDock.git
+git clone https://github.com/Rubyherp/FreeDock.git
 cd FreeDock
-make bundle  # builds and creates build/FreeDock.app
-make run     # bundles and opens the .app
+make run
 ```
 
 > **Note:** `swift run` launches the binary directly, bypassing the `.app` bundle. The `LSUIElement` setting (menu-bar agent mode) won't be respected this way. Always use `make run`, `./scripts/build.sh`, or open the `.app` bundle.
 
+**Requirements:** macOS 12+, Xcode 15+
+
 ## Usage
 
-Click the grid icon (⫷) in your menu bar. Select **New Dock → Horizontal** or **Vertical**. Drag apps from Finder into the dock. Right‑click an app to remove it. Drag empty space around the dock to move it.
+1. Click the **grid icon** (⫷) in your menu bar
+2. Select **New Dock → Horizontal** or **Vertical**
+3. Drag `.app` files from Finder into the dock
+4. Click any app to launch it or bring it to focus
+5. Drag the empty space around the dock to reposition it
+6. Right-click an app to remove it or access more options
 
-## Config
+**Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-All docks are saved to `~/.config/freedock.json`. You can edit this file directly — changes take effect the next time FreeDock launches.
+## Configuration
+
+Docks are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches.
+
+```json
+{
+  "docks" : [
+    {
+      "name" : "Dock 1",
+      "orientation" : "horizontal",
+      "iconSize" : 48,
+      "items" : [
+        { "appPath" : "/Applications/Safari.app", "label" : "Safari" }
+      ]
+    }
+  ]
+}
+```
+
+## Contributing
+
+Contributions are welcome! Open an issue or submit a PR.
 
 ## License
 
