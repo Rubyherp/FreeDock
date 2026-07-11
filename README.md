@@ -37,7 +37,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 
 <p align="center">
   <a href="https://www.buymeacoffee.com/thksalot">
-    <img src="qr-code.png" width="160" alt="Buy Me a Coffee QR code">
+    <img src="docs/qr-code.png" width="160" alt="Buy Me a Coffee QR code">
   </a>
   <br>
   <strong>If FreeDock saves you time, consider supporting my education.</strong> ☕
