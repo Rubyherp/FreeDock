@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/logo.png" width="256" alt="FreeDock">
+  <img src="docs/screenshot-hero.png" width="600" alt="FreeDock in action">
 </p>
 
 FreeDock lets you create unlimited floating docks on any macOS screen. Pin your most-used apps, organize them by project, and keep them accessible with a single click — all without touching the system Dock.
@@ -37,9 +37,21 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Persistent config** — All docks are saved to `~/.config/freedock.json`
 - **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
 
-## Installation
+## Screenshots
 
-### Download
+<p align="center">
+  <img src="docs/screenshot-menu.png" width="400" alt="Menu bar">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot-config-1.png" width="400" alt="Dock configuration">
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-config-2.png" width="400" alt="Dock settings">
+</p>
+
+<img src="docs/demo.gif" width="800" alt="FreeDock demo">
+
+## Installation
 
 Download the latest `FreeDock.app` from the [Releases](https://github.com/Rubyherp/FreeDock/releases) page, then drag it to your Applications folder.
 
