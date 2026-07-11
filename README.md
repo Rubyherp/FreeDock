@@ -27,7 +27,8 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 
 <p align="center">
   <a href="https://github.com/Rubyherp/FreeDock/stargazers">
-    <img src="https://img.shields.io/github/stars/Rubyherp/FreeDock?style=for-the-badge&logo=github&label=Star%20on%20GitHub" alt="GitHub stars">
+    <img src="https://img.shields.io/github/stars/Rubyherp/FreeDock?style=for-the-badge&logo=github&label=Star%20on%20GitHub&cacheSeconds=0" alt="GitHub stars">
+    
   </a>
   &nbsp;&nbsp;
   <a href="https://www.buymeacoffee.com/thksalot">
