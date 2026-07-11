@@ -73,7 +73,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 
 ## Installation
 
-Download the latest `FreeDock.app` from the [Releases](https://github.com/Rubyherp/FreeDock/releases) page, then drag it to your Applications folder.
+Download the latest `FreeDock.app` from the [Releases](https://github.com/Rubyherp/FreeDock/releases) page (when available), then drag it to your Applications folder.
 
 ### Build from source
 
@@ -119,7 +119,15 @@ Docks are saved to `~/.config/freedock.json`. The file is human-readable and edi
 
 ## Contributing
 
-Contributions are welcome! Open an issue or submit a PR.
+Contributions are welcome! Please read `CONTRIBUTING.md` before opening a PR.
+
+## Security
+
+To report a vulnerability, please follow `SECURITY.md` and avoid public issue disclosure.
+
+## Code of Conduct
+
+Please read `CODE_OF_CONDUCT.md` before participating.
 
 ## License
 

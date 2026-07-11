@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in FreeDock
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Clear description of the problem
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide exact, numbered steps
+      placeholder: |
+        1. Open FreeDock
+        2. Create a new vertical dock
+        3. Drag App X into the dock
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "macOS 14.5"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: FreeDock version or commit SHA
+      placeholder: "v0.1.0 or abc1234"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant logs or attach screenshots if useful
