@@ -79,7 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let iconMenu = NSMenu()
 
-                for size in [16.0, 24.0, 32.0, 48.0, 64.0] {
+                for size in [16.0, 24.0, 32.0, 48.0, 64.0, 80.0, 96.0, 128.0] {
                     let sizeItem = NSMenuItem(
                         title: "\(Int(size)) px",
                         action: #selector(changeIconSize(_:)),
