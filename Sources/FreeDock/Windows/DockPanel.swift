@@ -56,7 +56,7 @@ class DockPanel: NSPanel {
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
         hosting.layer?.cornerRadius = 14
-        hosting.layer?.masksToBounds = true
+        container.addSubview(hosting)
         container.addSubview(hosting)
         hostingView = hosting
         contentView = container

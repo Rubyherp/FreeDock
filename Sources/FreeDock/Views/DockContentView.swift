@@ -28,9 +28,9 @@ struct DockContentView: View {
                     panel: panel,
                     orientation: orientation
                 )
-                .frame(width: 32)
+                .frame(width: 24)
                 HStack(spacing: 0) { content }
-                    .padding(8)
+                    .padding(4)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
@@ -62,10 +62,10 @@ struct DockContentView: View {
                     panel: panel,
                     orientation: orientation
                 )
-                .frame(height: 32)
-                .padding(.top, 8)
+                .frame(height: 24)
+                .padding(.top, 12)
                 VStack(spacing: 0) { content }
-                    .padding(8)
+                    .padding(4)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
@@ -132,8 +132,8 @@ struct DockContentView: View {
                         orientation: orientation
                     )
                     .frame(
-                        width: iconSize + 20,
-                        height: iconSize + 20
+                        width: iconSize + 10,
+                        height: iconSize + 10
                     )
                     .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
                     .overlay(
@@ -157,11 +157,13 @@ struct DockContentView: View {
                     }
                 }
             }
+
             Color.clear
                 .frame(
-                    width: orientation == .horizontal ? 32 : iconSize + 20,
-                    height: orientation == .horizontal ? iconSize + 20 : 32
+                    width: orientation == .horizontal ? 16 : iconSize + 4,
+                    height: orientation == .horizontal ? iconSize + 4 : 16
                 )
+                .padding(orientation == .horizontal ? .leading : .top, 4)
                 .contentShape(Rectangle())
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -193,13 +195,13 @@ struct DockContentView: View {
                 Rectangle()
                     .fill(Color.white.opacity(0.15))
                     .frame(
-                        width: orientation == .horizontal ? 1 : 28,
-                        height: orientation == .horizontal ? 28 : 1
+                        width: orientation == .horizontal ? 2 : iconSize - (iconSize * 0.1),
+                        height: orientation == .horizontal ? iconSize - (iconSize * 0.1) : 2
                     )
             }
             .frame(
-                width: orientation == .horizontal ? 16 : iconSize + 20,
-                height: orientation == .horizontal ? iconSize + 20 : 16
+                width: orientation == .horizontal ? 8 : iconSize + 4,
+                height: orientation == .horizontal ? iconSize + 4 : 8
             )
         }
     }
@@ -212,8 +214,8 @@ struct DockContentView: View {
         }
 
         switch abs(index - hoveredIndex) {
-        case 0: return 1.40
-        case 1: return 1.20
+        case 0: return 1.30
+        case 1: return 1.15
         case 2: return 1.05
         default: return 1.0
         }
