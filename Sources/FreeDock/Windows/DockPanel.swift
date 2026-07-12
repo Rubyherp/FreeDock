@@ -1,6 +1,6 @@
 import Cocoa
-import SwiftUI
 import OSLog
+import SwiftUI
 
 class DockPanel: NSPanel {
     let dockID: UUID
@@ -13,13 +13,13 @@ class DockPanel: NSPanel {
     private func enforcedSize(for intrinsicSize: NSSize) -> NSSize {
         if dockOrientation == .vertical {
             return NSSize(
-                width: max(intrinsicSize.width, 72),
+                width: max(intrinsicSize.width, 24),
                 height: max(intrinsicSize.height, 320)
             )
         }
         return NSSize(
             width: max(intrinsicSize.width, 320),
-            height: max(intrinsicSize.height, 72)
+            height: max(intrinsicSize.height, 24)
         )
     }
 
