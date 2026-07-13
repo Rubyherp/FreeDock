@@ -5,9 +5,13 @@ struct DockContentView: View {
     let panel: DockPanel
     @Binding var items: [DockItem]
     let orientation: Orientation
-    let iconSize: Double
+    @ObservedObject var state: DockState
     let onItemsChanged: @MainActor ([DockItem]) -> Void
     let onAppLaunch: @MainActor (DockItem) -> Void
+
+    private var iconSize: Double {
+        state.iconSize
+    }
 
     @State private var isTargeted = false
     @State private var dropPulse = false
@@ -31,6 +35,11 @@ struct DockContentView: View {
                 .frame(width: 24)
                 HStack(spacing: 0) { content }
                     .padding(4)
+                DockResizeHandleRepresentable(
+                    panel: panel,
+                    orientation: orientation
+                )
+                .frame(width: 12)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
@@ -66,6 +75,11 @@ struct DockContentView: View {
                 .padding(.top, 12)
                 VStack(spacing: 0) { content }
                     .padding(4)
+                DockResizeHandleRepresentable(
+                    panel: panel,
+                    orientation: orientation
+                )
+                .frame(height: 12)
             }
             .contentShape(Rectangle())
             .onHover { hovering in
@@ -214,8 +228,8 @@ struct DockContentView: View {
         }
 
         switch abs(index - hoveredIndex) {
-        case 0: return 1.30
-        case 1: return 1.15
+        case 0: return 1.20
+        case 1: return 1.10
         case 2: return 1.05
         default: return 1.0
         }

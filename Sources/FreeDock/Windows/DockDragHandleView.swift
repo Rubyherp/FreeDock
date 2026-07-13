@@ -61,8 +61,9 @@ class DockDragHandleView: NSView {
 
     override func layout() {
         super.layout()
-        let pillW: CGFloat = 3
-        let pillH: CGFloat = 22
+        let pillW: CGFloat = 5
+        let pillH = CGFloat(22)
+
         if orientation == .horizontal {
             highlightLayer.frame = NSRect(
                 x: (stripRect.width - pillW) / 2 + stripRect.minX,

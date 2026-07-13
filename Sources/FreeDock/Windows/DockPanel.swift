@@ -7,7 +7,6 @@ class DockPanel: NSPanel {
     var dockOrientation: Orientation = .horizontal
     weak var dockDelegate: DockPanelDelegate?
     private weak var hostingView: NSView?
-    private var containerView: NSView?
     private var hideWorkItem: DispatchWorkItem?
 
     private func enforcedSize(for intrinsicSize: NSSize) -> NSSize {
@@ -49,14 +48,12 @@ class DockPanel: NSPanel {
     func setContentView<V: View>(_ view: V) {
         let container = DockContainerView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 70)))
         container.dockPanel = self
-        containerView = container
 
         let hosting = NSHostingView(rootView: view)
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
         hosting.layer?.cornerRadius = 14
-        container.addSubview(hosting)
         container.addSubview(hosting)
         hostingView = hosting
         contentView = container
@@ -78,21 +75,6 @@ class DockPanel: NSPanel {
         container.setFrameSize(enforcedSize)
         hosting.frame = container.bounds
         setContentSize(enforcedSize)
-    }
-
-    func addDragHandle(orientation: Orientation) {
-        guard let container = containerView else {
-            os_log(.error, "containerView is nil")
-            return
-        }
-        let handle = DockDragHandleView(frame: container.bounds)
-
-        handle.autoresizingMask = [.width, .height]
-        handle.orientation = orientation
-        handle.wantsLayer = true
-        handle.layer?.backgroundColor = NSColor.clear.cgColor
-        handle.dockPanel = self
-        container.addSubview(handle, positioned: .above, relativeTo: nil)
     }
 
     /// Prevent docks from landing off-screen (e.g., after monitor disconnect)
