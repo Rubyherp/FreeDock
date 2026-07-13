@@ -10,7 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .appendingPathComponent(".config/freedock.json")
     )
     private var _lockPositions = false
-
+    private var dockStates: [UUID: DockState] = [:]
     private struct IconSizeSelection {
         let dockID: UUID
         let size: Double
@@ -97,8 +97,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let iconItem = NSMenuItem(title: "Icon Size", action: nil, keyEquivalent: "")
                 iconItem.submenu = iconMenu
-                dockMenu.addItem(iconItem)
-
                 let root = NSMenuItem(title: dock.name, action: nil, keyEquivalent: "")
                 root.submenu = dockMenu
 
@@ -251,19 +249,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func changeIconSize(_ sender: NSMenuItem) {
         guard let selection = sender.representedObject as? IconSizeSelection,
               let index = configManager.config.docks.firstIndex(where: { $0.id == selection.dockID })
-        else {
-            return
-        }
+        else { return }
 
         configManager.config.docks[index].iconSize = selection.size
         configManager.save()
 
-        if let panel = dockPanels[selection.dockID] {
-            panel.close()
-            dockPanels.removeValue(forKey: selection.dockID)
-        }
-
-        showDock(configManager.config.docks[index])
+        dockStates[selection.dockID]?.iconSize = selection.size
+        dockPanels[selection.dockID]?.resizeToFitContent()
         rebuildMenu()
     }
 
@@ -274,6 +266,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.clampToVisibleFrame()
 
         let dockID = config.id
+        let state = DockState(iconSize: config.iconSize)
+        dockStates[config.id] = state // ← store it
+
         let content = DockContentView(
             panel: panel,
             items: Binding(
@@ -284,7 +279,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             ),
             orientation: config.orientation,
-            iconSize: config.iconSize,
+            state: state,
             onItemsChanged: { _ in
                 self.configManager.save()
                 DispatchQueue.main.async { panel.resizeToFitContent() }
@@ -330,6 +325,29 @@ extension AppDelegate: DockPanelDelegate {
         guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
 
         configManager.config.docks[idx].position = snapped.origin
+        configManager.save()
+    }
+
+    func currentIconSize(for panel: DockPanel) -> Double {
+        dockStates[panel.dockID]?.iconSize ?? 48
+    }
+
+    func dockPanelDidResize(_ panel: DockPanel, proposedIconSize: Double) {
+        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
+
+        // Update reactive state → SwiftUI reflows content
+        dockStates[panel.dockID]?.iconSize = proposedIconSize
+        configManager.config.docks[idx].iconSize = proposedIconSize
+
+        // Fit panel to the new content size
+        DispatchQueue.main.async {
+            panel.resizeToFitContent()
+        }
+    }
+
+    func dockPanelDidFinishResize(_ panel: DockPanel) {
+        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
+        configManager.config.docks[idx].position = panel.frame.origin
         configManager.save()
     }
 }
