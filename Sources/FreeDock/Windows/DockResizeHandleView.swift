@@ -10,6 +10,8 @@ class DockResizeHandleView: NSView {
     private var isResizing = false
     private var trackingArea: NSTrackingArea?
 
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -47,38 +49,38 @@ class DockResizeHandleView: NSView {
         let accent = NSColor.controlAccentColor
         let visible = isHovered || isResizing
 
-        // Keep the handle quiet at rest, then reveal a soft hit-area on hover.
-        if visible {
-            let backgroundRect = orientation == .horizontal
-                ? NSRect(x: bounds.midX - 5, y: bounds.midY - 18, width: 10, height: 36)
-                : NSRect(x: bounds.midX - 18, y: bounds.midY - 5, width: 36, height: 10)
-            accent.withAlphaComponent(isResizing ? 0.22 : 0.12).setFill()
-            NSBezierPath(
-                roundedRect: backgroundRect,
-                xRadius: backgroundRect.width / 2,
-                yRadius: backgroundRect.height / 2
-            ).fill()
-        }
+        guard visible else { return }
 
-        let dotColor = isResizing
-            ? accent
-            : (visible ? accent.withAlphaComponent(0.9) : NSColor.secondaryLabelColor.withAlphaComponent(0.6))
-        dotColor.setFill()
+        let handleLength = orientation == .horizontal
+            ? min(30, max(18, bounds.height - 16))
+            : min(30, max(18, bounds.width - 16))
+        let backgroundRect = orientation == .horizontal
+            ? NSRect(x: bounds.midX - 6, y: bounds.midY - handleLength / 2, width: 12, height: handleLength)
+            : NSRect(x: bounds.midX - handleLength / 2, y: bounds.midY - 6, width: handleLength, height: 12)
 
-        let dotRadius: CGFloat = visible ? 1.7 : 1.35
-        for offset in [-6.0, 0.0, 6.0] {
-            let center = orientation == .horizontal
-                ? NSPoint(x: bounds.midX, y: bounds.midY + offset)
-                : NSPoint(x: bounds.midX + offset, y: bounds.midY)
-            NSBezierPath(
-                ovalIn: NSRect(
-                    x: center.x - dotRadius,
-                    y: center.y - dotRadius,
-                    width: dotRadius * 2,
-                    height: dotRadius * 2
-                )
-            ).fill()
+        (isResizing ? accent : NSColor.controlBackgroundColor)
+            .withAlphaComponent(isResizing ? 0.20 : 0.42)
+            .setFill()
+        NSBezierPath(
+            roundedRect: backgroundRect,
+            xRadius: 6,
+            yRadius: 6
+        ).fill()
+
+        let marks = NSBezierPath()
+        for offset in [-2.25, 2.25] {
+            if orientation == .horizontal {
+                marks.move(to: NSPoint(x: bounds.midX + offset, y: bounds.midY - 5))
+                marks.line(to: NSPoint(x: bounds.midX + offset, y: bounds.midY + 5))
+            } else {
+                marks.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY + offset))
+                marks.line(to: NSPoint(x: bounds.midX + 5, y: bounds.midY + offset))
+            }
         }
+        marks.lineWidth = 1.4
+        marks.lineCapStyle = .round
+        (isResizing ? accent : NSColor.secondaryLabelColor.withAlphaComponent(0.72)).setStroke()
+        marks.stroke()
     }
 
     override func mouseEntered(with _: NSEvent) {

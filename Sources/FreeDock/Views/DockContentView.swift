@@ -2,6 +2,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockContentView: View {
+    private static let dockItemType = UTType(exportedAs: "com.freedock.dock-item")
+
     let panel: DockPanel
     @Binding var items: [DockItem]
     let orientation: Orientation
@@ -25,97 +27,74 @@ struct DockContentView: View {
         displayedItems ?? items
     }
 
+    private var surfaceCornerRadius: CGFloat { 18 }
+
+    private var magnificationHeadroom: CGFloat {
+        max(10, iconSize * 0.34)
+    }
+
     var body: some View {
+        dockLayout
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if !hovering { hoveredItem = nil }
+            }
+            .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+                handleFileDrop(providers)
+            }
+            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+            .onAppear { displayedItems = items }
+            .onChange(of: items) { displayedItems = $0 }
+            .contextMenu {
+                Button("Add Separator") {
+                    var updated = displayedItems ?? items
+                    updated.append(.separator())
+                    commitItems(updated)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var dockLayout: some View {
         if orientation == .horizontal {
-            HStack(spacing: 0) {
-                DockDragHandleRepresentable(
-                    panel: panel,
-                    orientation: orientation
-                )
-                .frame(width: 24)
-                HStack(spacing: 0) { content }
-                    .padding(4)
+            HStack(spacing: 3) { content }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 9)
+                .background(dockSurface)
+                .overlay(dropZoneHighlight)
+                .overlay(alignment: .trailing) {
                 DockResizeHandleRepresentable(
                     panel: panel,
                     orientation: orientation
                 )
-                .frame(width: 12)
-            }
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if !hovering {
-                    hoveredItem = nil
+                    .frame(width: 18)
                 }
-            }
-            .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-            .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
-                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
-                    return handleFileDrop(providers)
-                }
-                return false
-            }
-            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
-            .onAppear { displayedItems = items }
-            .onChange(of: items) { displayedItems = $0 }
-            .contextMenu {
-                Button("Add Separator") {
-                    var updated = displayedItems ?? items
-                    updated.append(.separator())
-                    commitItems(updated)
-                }
-            }
+                .padding(.top, magnificationHeadroom)
         } else {
-            VStack(spacing: 0) {
-                DockDragHandleRepresentable(
-                    panel: panel,
-                    orientation: orientation
-                )
-                .frame(height: 24)
-                .padding(.top, 12)
-                VStack(spacing: 0) { content }
-                    .padding(4)
+            VStack(spacing: 3) { content }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .background(dockSurface)
+                .overlay(dropZoneHighlight)
+                .overlay(alignment: .bottom) {
                 DockResizeHandleRepresentable(
                     panel: panel,
                     orientation: orientation
                 )
-                .frame(height: 12)
-            }
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if !hovering {
-                    hoveredItem = nil
+                    .frame(height: 18)
                 }
-            }
-            .background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial).shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2))
-            .overlay(dropZoneHighlight)
-            .onDrop(of: [.fileURL, .plainText], isTargeted: $isTargeted) { providers in
-                if providers.first?.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) == true {
-                    return handleFileDrop(providers)
-                }
-                return false
-            }
-            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
-            .onAppear { displayedItems = items }
-            .onChange(of: items) { displayedItems = $0 }
-            .contextMenu {
-                Button("Add Separator") {
-                    var updated = displayedItems ?? items
-                    updated.append(.separator())
-                    commitItems(updated)
-                }
-            }
+                .padding(.horizontal, magnificationHeadroom * 0.52)
         }
     }
 
     @ViewBuilder
     private var content: some View {
         if currentItems.isEmpty {
-            Text("Drag apps here")
-                .foregroundColor(.secondary)
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+            Label("Drop apps", systemImage: "plus.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary.opacity(0.85))
+                .padding(.horizontal, 13)
+                .padding(.vertical, 9)
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
@@ -129,10 +108,9 @@ struct DockContentView: View {
                             }
                         }
                         .onDrag {
-                            draggedItem = item
-                            return NSItemProvider(object: item.id.uuidString as NSString)
+                            dragProvider(for: item)
                         }
-                        .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                        .onDrop(of: [Self.dockItemType], isTargeted: nil) { providers in
                             handleReorder(providers, targetItem: item)
                         }
                 } else {
@@ -146,24 +124,24 @@ struct DockContentView: View {
                         orientation: orientation
                     )
                     .frame(
-                        width: iconSize + 10,
-                        height: iconSize + 10
+                        width: iconSize + 9,
+                        height: iconSize + 11
                     )
                     .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.accentColor.opacity(dropTargetItem == item.id ? 0.8 : 0), lineWidth: 2)
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.accentColor.opacity(dropTargetItem == item.id ? 0.9 : 0), lineWidth: 2)
+                            .padding(2)
                     )
                     .onDrag {
-                        draggedItem = item
-                        return NSItemProvider(object: item.id.uuidString as NSString)
+                        dragProvider(for: item)
                     } preview: {
                         Image(nsImage: AppInfo.resolve(from: item.appPath).icon)
                             .resizable()
                             .frame(width: iconSize, height: iconSize)
                             .opacity(0.85)
                     }
-                    .onDrop(of: [.plainText], isTargeted: Binding(
+                    .onDrop(of: [Self.dockItemType], isTargeted: Binding(
                         get: { dropTargetItem == item.id },
                         set: { dropTargetItem = $0 ? item.id : nil }
                     )) { providers in
@@ -174,8 +152,8 @@ struct DockContentView: View {
 
             Color.clear
                 .frame(
-                    width: orientation == .horizontal ? 16 : iconSize + 4,
-                    height: orientation == .horizontal ? iconSize + 4 : 16
+                    width: orientation == .horizontal ? 8 : iconSize + 6,
+                    height: orientation == .horizontal ? iconSize + 6 : 8
                 )
                 .padding(orientation == .horizontal ? .leading : .top, 4)
                 .contentShape(Rectangle())
@@ -183,7 +161,7 @@ struct DockContentView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
                 )
-                .onDrop(of: [.plainText], isTargeted: $trailingTargeted) { _ in
+                .onDrop(of: [Self.dockItemType], isTargeted: $trailingTargeted) { _ in
                     var updatedItems = displayedItems ?? items
                     guard let dragged = draggedItem,
                           let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
@@ -206,11 +184,11 @@ struct DockContentView: View {
         let iconSize: Double
         var body: some View {
             ZStack {
-                Rectangle()
-                    .fill(Color.white.opacity(0.15))
+                Capsule()
+                    .fill(Color.primary.opacity(0.16))
                     .frame(
-                        width: orientation == .horizontal ? 2 : iconSize - (iconSize * 0.1),
-                        height: orientation == .horizontal ? iconSize - (iconSize * 0.1) : 2
+                        width: orientation == .horizontal ? 1 : iconSize * 0.54,
+                        height: orientation == .horizontal ? iconSize * 0.54 : 1
                     )
             }
             .frame(
@@ -228,17 +206,44 @@ struct DockContentView: View {
         }
 
         switch abs(index - hoveredIndex) {
-        case 0: return 1.20
-        case 1: return 1.10
-        case 2: return 1.05
+        case 0: return 1.30
+        case 1: return 1.15
+        case 2: return 1.06
         default: return 1.0
         }
     }
 
     private var dropZoneHighlight: some View {
-        RoundedRectangle(cornerRadius: 14)
-            .stroke(isTargeted ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55) : Color.clear, lineWidth: 3)
+        RoundedRectangle(cornerRadius: surfaceCornerRadius)
+            .stroke(isTargeted ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55) : Color.clear, lineWidth: 2)
             .shadow(color: isTargeted ? Color.accentColor.opacity(dropPulse ? 0.35 : 0.12) : Color.clear, radius: dropPulse ? 7 : 2)
+    }
+
+    private var dockSurface: some View {
+        let shape = RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous)
+        return shape
+            .fill(.regularMaterial)
+            .overlay {
+                shape.fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.18), .white.opacity(0.045), .black.opacity(0.035)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            }
+            .overlay {
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.30), .white.opacity(0.10), .black.opacity(0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+            }
+            .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.10), radius: 2, x: 0, y: 1)
     }
 
     private func updateDropPulse(_ targeted: Bool) {
@@ -270,6 +275,19 @@ struct DockContentView: View {
             }
         }
         return true
+    }
+
+    private func dragProvider(for item: DockItem) -> NSItemProvider {
+        draggedItem = item
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: Self.dockItemType.identifier,
+            visibility: .ownProcess
+        ) { completion in
+            completion(item.id.uuidString.data(using: .utf8), nil)
+            return nil
+        }
+        return provider
     }
 
     private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {

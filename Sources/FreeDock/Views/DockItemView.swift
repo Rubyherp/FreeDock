@@ -23,22 +23,32 @@ struct DockItemView: View {
         return monitor.runningBundleIDs.contains(bid)
     }
 
+    private var magnificationAnchor: UnitPoint {
+        orientation == .horizontal ? .bottom : .center
+    }
+
+    private var hoverOffset: CGSize {
+        orientation == .horizontal
+            ? CGSize(width: 0, height: isHovering ? -2 : 0)
+            : .zero
+    }
+
     var body: some View {
         ZStack {
-            VStack(spacing: 1) {
-                Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
-                    .resizable()
-                    .frame(width: iconSize, height: iconSize)
-                    .shadow(color: .black.opacity(0.1), radius: 1, x: 0, y: 1)
-
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 5, height: 5)
-                    .shadow(color: .white.opacity(0.8), radius: 3)
-                    .opacity(isRunning ? 1 : 0)
-                    .scaleEffect(isRunning ? 1 : 0.3)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isRunning)
-            }
+            Image(nsImage: (appInfo ?? AppInfo.resolve(from: item.appPath)).icon)
+                .resizable()
+                .frame(width: iconSize, height: iconSize)
+                .shadow(color: .black.opacity(isHovering ? 0.25 : 0.14), radius: isHovering ? 8 : 3, x: 0, y: 3)
+                .overlay(alignment: orientation == .horizontal ? .bottom : .leading) {
+                    Circle()
+                        .fill(Color.primary.opacity(0.78))
+                        .frame(width: 4, height: 4)
+                        .shadow(color: .black.opacity(0.16), radius: 1, y: 1)
+                        .offset(orientation == .horizontal ? CGSize(width: 0, height: 7) : CGSize(width: -7, height: 0))
+                        .opacity(isRunning ? 1 : 0)
+                        .scaleEffect(isRunning ? 1 : 0.35)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: isRunning)
+                }
         }
         .background(ScreenRectReader { screenRect = $0 })
         .onHover { hovering in
@@ -59,12 +69,12 @@ struct DockItemView: View {
 
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .padding(4)
-        .scaleEffect(scale)
-        .offset(y: bouncing ? -4 : 0)
+        .scaleEffect(scale, anchor: magnificationAnchor)
+        .offset(y: bouncing && orientation == .horizontal ? -5 : 0)
+        .offset(x: bouncing && orientation == .vertical ? 5 : 0)
         .animation(.interpolatingSpring(stiffness: 300, damping: 4), value: bouncing)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: scale)
-        .offset(y: isHovering ? -2 : 0)
-        .shadow(radius: isHovering ? 5 : 2)
+        .offset(hoverOffset)
         .onTapGesture {
             bounce()
             onLaunch()

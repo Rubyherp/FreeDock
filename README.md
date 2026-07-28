@@ -49,14 +49,21 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 ## Features
 
 - **Unlimited docks** — Create as many docks as you need, on any screen
+- **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
+- **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
 - **Drag & drop** — Drag `.app` files from Finder directly onto a dock
 - **Reorder** — Drag icons within a dock to rearrange them
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
 - **Click to launch or switch** — Single-click to open an app or bring it to focus
 - **Lock positions** — Prevent accidental dock movement
+- **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
 - **Persistent config** — All docks are saved to `~/.config/freedock.json`
 - **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
+
+## Free and open source, permanently
+
+FreeDock is MIT-licensed and all features are available to everyone. The goal is a thoughtful, native alternative to the system Dock—not a free trial or a feature-gated shell. See the [project roadmap](docs/ROADMAP.md) for the next improvements and ways to contribute.
 
 ## Screenshots
 
@@ -99,24 +106,37 @@ make run
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
+**Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
+
 ## Configuration
 
-Docks are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches.
+Docks and profiles are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Legacy top-level dock configurations migrate automatically.
 
 ```json
 {
-  "docks" : [
+  "formatVersion": 2,
+  "activeProfileID": "11111111-1111-1111-1111-111111111111",
+  "profiles": [
     {
-      "name" : "Dock 1",
-      "orientation" : "horizontal",
-      "iconSize" : 48,
-      "items" : [
-        { "appPath" : "/Applications/Safari.app", "label" : "Safari" }
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Work",
+      "docks": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "Main",
+          "position": [100, 100],
+          "orientation": "horizontal",
+          "iconSize": 48,
+          "autoHideWhenDocked": true,
+          "items": []
+        }
       ]
     }
   ]
 }
 ```
+
+FreeDock also writes the active profile’s docks to a top-level compatibility field so older builds can still open the current setup.
 
 ## Contributing
 

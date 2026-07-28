@@ -10,11 +10,13 @@ func saveAndLoad() throws {
 
     let path = tempDir.appendingPathComponent("freedock.json")
     let mgr = ConfigManager(configPath: path)
+    #expect(!mgr.loadedFromDisk)
     mgr.config = AppConfig(docks: [DockConfig(name: "Saved")])
     mgr.save()
     mgr.saveImmediately()
 
     let loader = ConfigManager(configPath: path)
+    #expect(loader.loadedFromDisk)
     #expect(loader.config.docks.count == 1)
     #expect(loader.config.docks[0].name == "Saved")
 }
@@ -43,5 +45,6 @@ func backupCreated() throws {
 func missingFile() {
     let path = FileManager.default.temporaryDirectory.appendingPathComponent("fd-nonexistent-\(UUID().uuidString).json")
     let mgr = ConfigManager(configPath: path)
+    #expect(!mgr.loadedFromDisk)
     #expect(mgr.config.docks.isEmpty)
 }

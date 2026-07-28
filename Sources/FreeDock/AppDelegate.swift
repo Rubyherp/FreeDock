@@ -5,6 +5,7 @@ import SwiftUI
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var dockPanels: [UUID: DockPanel] = [:]
+    private let shortcutManager = GlobalShortcutManager()
     private let configManager = ConfigManager(
         configPath: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/freedock.json")
@@ -30,11 +31,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
-        rebuildMenu()
         restoreDocks()
-        if configManager.config.docks.isEmpty {
+        if !configManager.loadedFromDisk, configManager.config.docks.isEmpty {
             createInitialSeededDock()
         }
+        rebuildMenu()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -45,6 +46,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func rebuildMenu() {
         let menu = NSMenu()
+
+        let profileMenu = NSMenu()
+        for (index, profile) in configManager.config.profiles.enumerated() {
+            let profileItem = NSMenuItem(
+                title: profile.name,
+                action: #selector(switchProfile(_:)),
+                keyEquivalent: index < 9 ? "\(index + 1)" : ""
+            )
+            profileItem.representedObject = profile.id
+            profileItem.state = profile.id == configManager.config.activeProfileID ? .on : .off
+            if index < 9 {
+                profileItem.keyEquivalentModifierMask = [.control, .option]
+            }
+            profileMenu.addItem(profileItem)
+        }
+        profileMenu.addItem(.separator())
+        profileMenu.addItem(NSMenuItem(
+            title: "New Profile…",
+            action: #selector(createProfile),
+            keyEquivalent: ""
+        ))
+        profileMenu.addItem(NSMenuItem(
+            title: "Rename Current Profile…",
+            action: #selector(renameCurrentProfile),
+            keyEquivalent: ""
+        ))
+        let deleteProfileItem = NSMenuItem(
+            title: "Delete Current Profile…",
+            action: #selector(deleteCurrentProfile),
+            keyEquivalent: ""
+        )
+        deleteProfileItem.isEnabled = configManager.config.profiles.count > 1
+        profileMenu.addItem(deleteProfileItem)
+
+        let profileRoot = NSMenuItem(
+            title: "Profile: \(configManager.config.activeProfileName)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        profileRoot.submenu = profileMenu
+        menu.addItem(profileRoot)
+
+        let toggleProfileItem = NSMenuItem(
+            title: dockPanels.isEmpty ? "Show Active Profile" : "Hide Active Profile",
+            action: #selector(toggleActiveProfileDocks),
+            keyEquivalent: " "
+        )
+        toggleProfileItem.keyEquivalentModifierMask = [.control, .option]
+        toggleProfileItem.isEnabled = !configManager.config.docks.isEmpty
+        menu.addItem(toggleProfileItem)
+        menu.addItem(.separator())
+
         let newSub = NSMenu()
         newSub.addItem(NSMenuItem(title: "Horizontal", action: #selector(newHorizontalDock), keyEquivalent: ""))
         newSub.addItem(NSMenuItem(title: "Vertical", action: #selector(newVerticalDock), keyEquivalent: ""))
@@ -66,6 +119,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 dockMenu.addItem(renameItem)
 
                 dockMenu.addItem(.separator())
+
+                let autoHideItem = NSMenuItem(
+                    title: "Auto-Hide at Screen Edge",
+                    action: #selector(toggleDockAutoHide(_:)),
+                    keyEquivalent: ""
+                )
+                autoHideItem.representedObject = dock.id
+                autoHideItem.state = dock.autoHideWhenDocked ? .on : .off
+                dockMenu.addItem(autoHideItem)
+
+                let dockToEdgeItem = NSMenuItem(
+                    title: "Dock to Nearest Screen Edge",
+                    action: #selector(dockToNearestEdge(_:)),
+                    keyEquivalent: ""
+                )
+                dockToEdgeItem.representedObject = dock.id
+                dockToEdgeItem.isEnabled = dockPanels[dock.id] != nil
+                dockMenu.addItem(dockToEdgeItem)
 
                 let toggle = NSMenuItem(
                     title: dockPanels[dock.id] != nil ? "Hide Dock" : "Show Dock",
@@ -122,12 +193,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit FreeDock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
+        configureGlobalShortcuts()
     }
 
     private let snapDistance: CGFloat = 15
 
     private func snapFrame(_ frame: NSRect) -> NSRect {
-        guard let screen = NSScreen.main else { return frame }
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main else { return frame }
 
         let visible = screen.visibleFrame
         var snapped = frame
@@ -149,6 +222,210 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return snapped
+    }
+
+    private func frameDockedToNearestEdge(_ frame: NSRect, orientation: Orientation) -> NSRect {
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main else { return frame }
+
+        let visible = screen.visibleFrame
+        var docked = frame
+
+        if orientation == .horizontal {
+            let distanceToBottom = abs(frame.minY - visible.minY)
+            let distanceToTop = abs(frame.maxY - visible.maxY)
+            docked.origin.y = distanceToBottom <= distanceToTop
+                ? visible.minY
+                : visible.maxY - frame.height
+            docked.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
+        } else {
+            let distanceToLeft = abs(frame.minX - visible.minX)
+            let distanceToRight = abs(frame.maxX - visible.maxX)
+            docked.origin.x = distanceToLeft <= distanceToRight
+                ? visible.minX
+                : visible.maxX - frame.width
+            docked.origin.y = min(max(frame.origin.y, visible.minY), visible.maxY - frame.height)
+        }
+
+        return docked
+    }
+
+    @objc private func switchProfile(_ sender: NSMenuItem) {
+        guard let profileID = sender.representedObject as? UUID else { return }
+        activateProfile(profileID)
+    }
+
+    private func activateProfile(_ profileID: UUID) {
+        guard profileID != configManager.config.activeProfileID,
+              configManager.config.profiles.contains(where: { $0.id == profileID })
+        else { return }
+
+        saveAllPositions()
+        closeAllDockPanels()
+        configManager.config.activeProfileID = profileID
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    @objc private func toggleActiveProfileDocks() {
+        if dockPanels.isEmpty {
+            restoreDocks()
+        } else {
+            saveAllPositions()
+            closeAllDockPanels()
+        }
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func configureGlobalShortcuts() {
+        shortcutManager.reset()
+        shortcutManager.register(id: 1, keyCode: GlobalShortcutManager.showHideKeyCode) { [weak self] in
+            self?.toggleActiveProfileDocks()
+        }
+
+        for (index, profile) in configManager.config.profiles.prefix(9).enumerated() {
+            shortcutManager.register(
+                id: UInt32(index + 2),
+                keyCode: GlobalShortcutManager.profileKeyCodes[index]
+            ) { [weak self] in
+                self?.activateProfile(profile.id)
+            }
+        }
+    }
+
+    @objc private func createProfile() {
+        guard let name = promptForProfileName(
+            title: "New Profile",
+            message: "Create a separate set of docks for a workflow.",
+            initialValue: suggestedProfileName()
+        ) else { return }
+
+        saveAllPositions()
+        closeAllDockPanels()
+
+        let starterDock = DockConfig(
+            name: "Dock 1",
+            position: defaultDockPosition,
+            orientation: .horizontal,
+            autoHideWhenDocked: false
+        )
+        let profile = DockProfile(name: name, docks: [starterDock])
+        configManager.config.profiles.append(profile)
+        configManager.config.activeProfileID = profile.id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    @objc private func renameCurrentProfile() {
+        let profileID = configManager.config.activeProfileID
+        guard let index = configManager.config.profiles.firstIndex(where: { $0.id == profileID }),
+              let name = promptForProfileName(
+                  title: "Rename Profile",
+                  message: "Choose a name for this dock profile.",
+                  initialValue: configManager.config.profiles[index].name,
+                  excluding: profileID
+              )
+        else { return }
+
+        configManager.config.profiles[index].name = name
+        configManager.save()
+        rebuildMenu()
+    }
+
+    @objc private func deleteCurrentProfile() {
+        guard configManager.config.profiles.count > 1,
+              let index = configManager.config.profiles.firstIndex(where: {
+                  $0.id == configManager.config.activeProfileID
+              })
+        else { return }
+
+        let profile = configManager.config.profiles[index]
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(profile.name)”?"
+        alert.informativeText = profile.docks.isEmpty
+            ? "This profile is empty."
+            : "This permanently removes \(profile.docks.count) dock\(profile.docks.count == 1 ? "" : "s") from the profile."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        saveAllPositions()
+        closeAllDockPanels()
+        configManager.config.profiles.remove(at: index)
+        let nextIndex = min(index, configManager.config.profiles.count - 1)
+        configManager.config.activeProfileID = configManager.config.profiles[nextIndex].id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func promptForProfileName(
+        title: String,
+        message: String,
+        initialValue: String,
+        excluding excludedID: UUID? = nil
+    ) -> String? {
+        var proposedValue = initialValue
+
+        while true {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = title
+            alert.informativeText = message
+
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+            field.stringValue = proposedValue
+            field.selectText(nil)
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+
+            guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+            proposedValue = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if proposedValue.isEmpty {
+                showProfileNameError("Profile names cannot be empty.")
+                continue
+            }
+
+            let isDuplicate = configManager.config.profiles.contains {
+                $0.id != excludedID
+                    && $0.name.compare(proposedValue, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+            if isDuplicate {
+                showProfileNameError("A profile named “\(proposedValue)” already exists.")
+                continue
+            }
+
+            return proposedValue
+        }
+    }
+
+    private func showProfileNameError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Choose Another Name"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func suggestedProfileName() -> String {
+        let base = "Profile"
+        var number = configManager.config.profiles.count + 1
+        var candidate = "\(base) \(number)"
+        let existing = Set(configManager.config.profiles.map { $0.name.lowercased() })
+
+        while existing.contains(candidate.lowercased()) {
+            number += 1
+            candidate = "\(base) \(number)"
+        }
+        return candidate
     }
 
     @objc private func newHorizontalDock() {
@@ -197,8 +474,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         if let panel = dockPanels[id] {
-            panel.orderOut(nil)
+            panel.tearDown()
             dockPanels.removeValue(forKey: id)
+            dockStates.removeValue(forKey: id)
         } else if let config = configManager.config.docks.first(where: { $0.id == id }) {
             showDock(config)
         }
@@ -207,8 +485,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func deleteDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
-        dockPanels[id]?.close()
+        dockPanels[id]?.tearDown()
         dockPanels.removeValue(forKey: id)
+        dockStates.removeValue(forKey: id)
         configManager.config.docks.removeAll(where: { $0.id == id })
         configManager.save()
         rebuildMenu()
@@ -216,7 +495,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLockPositions() {
         _lockPositions.toggle()
+        for panel in dockPanels.values {
+            panel.isMovableByWindowBackground = !_lockPositions
+        }
         rebuildMenu()
+    }
+
+    @objc private func toggleDockAutoHide(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let index = configManager.config.docks.firstIndex(where: { $0.id == id })
+        else { return }
+
+        configManager.config.docks[index].autoHideWhenDocked.toggle()
+        let autoHideEnabled = configManager.config.docks[index].autoHideWhenDocked
+        dockPanels[id]?.autoHideWhenDocked = autoHideEnabled
+
+        if autoHideEnabled, let panel = dockPanels[id] {
+            panel.revealImmediately()
+            let dockedFrame = frameDockedToNearestEdge(
+                panel.frameForPersistence,
+                orientation: configManager.config.docks[index].orientation
+            )
+            panel.setFrame(dockedFrame, display: true, animate: true)
+            configManager.config.docks[index].position = dockedFrame.origin
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
+                panel?.updateAutoHideEdge()
+                panel?.scheduleAutoHide()
+            }
+        }
+        configManager.save()
+        rebuildMenu()
+    }
+
+    @objc private func dockToNearestEdge(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let index = configManager.config.docks.firstIndex(where: { $0.id == id }),
+              let panel = dockPanels[id]
+        else { return }
+
+        panel.revealImmediately()
+        let dockedFrame = frameDockedToNearestEdge(
+            panel.frameForPersistence,
+            orientation: configManager.config.docks[index].orientation
+        )
+        panel.setFrame(dockedFrame, display: true, animate: true)
+        configManager.config.docks[index].position = dockedFrame.origin
+        configManager.save()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
+            panel?.updateAutoHideEdge()
+            panel?.scheduleAutoHide()
+        }
     }
 
     @objc private func renameDock(_ sender: NSMenuItem) {
@@ -288,10 +617,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         panel.dockOrientation = config.orientation
+        panel.autoHideWhenDocked = config.autoHideWhenDocked
         panel.setContentView(content)
         panel.dockDelegate = self
+        panel.isMovableByWindowBackground = !_lockPositions
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
+        panel.clampToVisibleFrame()
+
+        if config.autoHideWhenDocked {
+            let dockedFrame = frameDockedToNearestEdge(panel.frame, orientation: config.orientation)
+            panel.setFrame(dockedFrame, display: true)
+            if let index = configManager.config.docks.firstIndex(where: { $0.id == config.id }) {
+                configManager.config.docks[index].position = dockedFrame.origin
+            }
+            panel.updateAutoHideEdge()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak panel] in
+                panel?.scheduleAutoHide()
+            }
+        }
         dockPanels[config.id] = panel
     }
 
@@ -304,8 +648,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func saveAllPositions() {
         for (id, panel) in dockPanels {
             guard let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { continue }
-            configManager.config.docks[idx].position = panel.frame.origin
+            configManager.config.docks[idx].position = panel.frameForPersistence.origin
         }
+    }
+
+    private func closeAllDockPanels() {
+        TooltipManager.shared.hide()
+        for panel in dockPanels.values {
+            panel.tearDown()
+        }
+        dockPanels.removeAll()
+        dockStates.removeAll()
     }
 }
 
@@ -316,11 +669,15 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidMove(_ panel: DockPanel) {
-        let snapped = snapFrame(panel.frame)
+        let snapped = panel.autoHideWhenDocked
+            ? frameDockedToNearestEdge(panel.frame, orientation: panel.dockOrientation)
+            : snapFrame(panel.frame)
 
         if snapped.origin != panel.frame.origin {
             panel.setFrame(snapped, display: true, animate: true)
         }
+
+        panel.updateAutoHideEdge()
 
         guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
 
@@ -347,7 +704,13 @@ extension AppDelegate: DockPanelDelegate {
 
     func dockPanelDidFinishResize(_ panel: DockPanel) {
         guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
-        configManager.config.docks[idx].position = panel.frame.origin
+
+        let snapped = snapFrame(panel.frame)
+        if snapped.origin != panel.frame.origin {
+            panel.setFrame(snapped, display: true, animate: true)
+        }
+        panel.updateAutoHideEdge()
+        configManager.config.docks[idx].position = panel.frameForPersistence.origin
         configManager.save()
     }
 }

@@ -34,14 +34,18 @@ final class TooltipManager {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let host = NSHostingView(rootView:
             Text(text)
-                .font(.caption)
+                .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
                 .fixedSize()
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
                 .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-                .shadow(radius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(.white.opacity(0.25), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.22), radius: 10, y: 4))
         let size = host.fittingSize
         p.contentView = host
         let origin: NSPoint

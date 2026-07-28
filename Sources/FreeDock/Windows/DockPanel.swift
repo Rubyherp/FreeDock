@@ -2,23 +2,54 @@ import Cocoa
 import OSLog
 import SwiftUI
 
-class DockPanel: NSPanel {
+class DockPanel: NSPanel, NSWindowDelegate {
+    private enum DockEdge {
+        case left
+        case right
+        case top
+        case bottom
+    }
+
     let dockID: UUID
     var dockOrientation: Orientation = .horizontal
+    var autoHideWhenDocked = true {
+        didSet {
+            guard oldValue != autoHideWhenDocked else { return }
+            if autoHideWhenDocked {
+                updateAutoHideEdge()
+            } else {
+                autoHideEdge = nil
+                cancelAutoHide()
+            }
+        }
+    }
     weak var dockDelegate: DockPanelDelegate?
     private weak var hostingView: NSView?
     private var hideWorkItem: DispatchWorkItem?
+    private var autoHideEdge: DockEdge?
+    private var shownFrame: NSRect?
+    private var isAutoHidden = false
+    private var isUserMovingWindow = false
+    private var moveCompletionWorkItem: DispatchWorkItem?
+
+    private let edgeTolerance: CGFloat = 2
+    private let revealThickness: CGFloat = 6
+
+    /// The frame users expect to restore to, even while an edge-docked panel is hidden.
+    var frameForPersistence: NSRect {
+        shownFrame ?? frame
+    }
 
     private func enforcedSize(for intrinsicSize: NSSize) -> NSSize {
         if dockOrientation == .vertical {
             return NSSize(
-                width: max(intrinsicSize.width, 24),
-                height: max(intrinsicSize.height, 320)
+                width: max(intrinsicSize.width, 58),
+                height: max(intrinsicSize.height, 86)
             )
         }
         return NSSize(
-            width: max(intrinsicSize.width, 320),
-            height: max(intrinsicSize.height, 24)
+            width: max(intrinsicSize.width, 86),
+            height: max(intrinsicSize.height, 58)
         )
     }
 
@@ -37,12 +68,38 @@ class DockPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // The shelf draws its own shape-aware shadow; a window shadow would outline
+        // the transparent magnification headroom as a second, rectangular border.
+        hasShadow = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isMovableByWindowBackground = false
+        isMovableByWindowBackground = true
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isReleasedWhenClosed = false
+        delegate = self
+    }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        isAutoHidden ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+
+    func windowWillMove(_: Notification) {
+        guard !isAutoHidden else { return }
+        isUserMovingWindow = true
+        hideWorkItem?.cancel()
+    }
+
+    func windowDidMove(_: Notification) {
+        guard isUserMovingWindow else { return }
+        moveCompletionWorkItem?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.isUserMovingWindow = false
+            self.dockDelegate?.dockPanelDidMove(self)
+        }
+        moveCompletionWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
     func setContentView<V: View>(_ view: V) {
@@ -53,7 +110,9 @@ class DockPanel: NSPanel {
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
-        hosting.layer?.cornerRadius = 14
+        // Corner treatment belongs to the shelf itself, not the larger transparent
+        // hosting view that also reserves room for icon magnification.
+        hosting.layer?.cornerRadius = 0
         container.addSubview(hosting)
         hostingView = hosting
         contentView = container
@@ -69,12 +128,35 @@ class DockPanel: NSPanel {
               let hosting = hostingView
         else { return }
 
+        let originalFrame = frame
+        let preservedEdge = autoHideEdge
         hosting.invalidateIntrinsicContentSize()
         let intrinsicSize = hosting.fittingSize
         let enforcedSize = enforcedSize(for: intrinsicSize)
+        setContentSize(enforcedSize)
+
+        var anchoredFrame = frame
+        anchoredFrame.size = enforcedSize
+
+        if preservedEdge == .right {
+            anchoredFrame.origin.x = originalFrame.maxX - enforcedSize.width
+        } else {
+            anchoredFrame.origin.x = originalFrame.minX
+        }
+
+        if dockOrientation == .horizontal {
+            anchoredFrame.origin.y = preservedEdge == .top
+                ? originalFrame.maxY - enforcedSize.height
+                : originalFrame.minY
+        } else {
+            anchoredFrame.origin.y = preservedEdge == .bottom
+                ? originalFrame.minY
+                : originalFrame.maxY - enforcedSize.height
+        }
+
+        setFrame(anchoredFrame, display: true)
         container.setFrameSize(enforcedSize)
         hosting.frame = container.bounds
-        setContentSize(enforcedSize)
     }
 
     /// Prevent docks from landing off-screen (e.g., after monitor disconnect)
@@ -85,17 +167,55 @@ class DockPanel: NSPanel {
         f.origin.x = min(max(f.origin.x, vf.minX), vf.maxX - f.width)
         f.origin.y = min(max(f.origin.y, vf.minY), vf.maxY - f.height)
         setFrame(f, display: true)
+        updateAutoHideEdge()
+    }
+
+    /// Enables slide-away auto-hide only when this dock rests on a screen edge.
+    func updateAutoHideEdge() {
+        guard autoHideWhenDocked,
+              !isAutoHidden,
+              let visibleFrame = activeScreen?.visibleFrame
+        else { return }
+
+        let currentFrame = frame
+        shownFrame = currentFrame
+
+        let candidates: [(DockEdge, CGFloat)] = [
+            (.left, abs(currentFrame.minX - visibleFrame.minX)),
+            (.right, abs(currentFrame.maxX - visibleFrame.maxX)),
+            (.bottom, abs(currentFrame.minY - visibleFrame.minY)),
+            (.top, abs(currentFrame.maxY - visibleFrame.maxY)),
+        ]
+
+        autoHideEdge = candidates.min { $0.1 < $1.1 }.flatMap {
+            $0.1 <= edgeTolerance ? $0.0 : nil
+        }
     }
 
     func scheduleAutoHide() {
         hideWorkItem?.cancel()
 
+        guard autoHideWhenDocked,
+              let edge = autoHideEdge,
+              let visibleFrame = activeScreen?.visibleFrame,
+              let restingFrame = shownFrame
+        else { return }
+
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            guard !self.isAutoHidden else { return }
 
+            self.isAutoHidden = true
+            self.dockContainer?.showRevealIndicator(at: self.revealEdge(for: edge))
+            self.hostingView?.alphaValue = 0
+            self.hostingView?.isHidden = true
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.20
-                self.animator().alphaValue = 0.40
+                context.duration = 0.24
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.animator().setFrame(
+                    self.hiddenFrame(for: restingFrame, at: edge, in: visibleFrame),
+                    display: true
+                )
             }
         }
 
@@ -105,10 +225,81 @@ class DockPanel: NSPanel {
 
     func cancelAutoHide() {
         hideWorkItem?.cancel()
+        guard isAutoHidden, let restingFrame = shownFrame else { return }
 
+        isAutoHidden = false
+        hostingView?.isHidden = false
+        hostingView?.alphaValue = 0
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.40
-            self.animator().alphaValue = 1.0
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.hostingView?.animator().alphaValue = 1
+            self.animator().setFrame(restingFrame, display: true)
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.dockContainer?.hideRevealIndicator()
+        }
+    }
+
+    func revealImmediately() {
+        hideWorkItem?.cancel()
+        guard isAutoHidden, let restingFrame = shownFrame else { return }
+        isAutoHidden = false
+        hostingView?.isHidden = false
+        hostingView?.alphaValue = 1
+        dockContainer?.hideRevealIndicator()
+        setFrame(restingFrame, display: true)
+    }
+
+    func tearDown() {
+        hideWorkItem?.cancel()
+        moveCompletionWorkItem?.cancel()
+        isUserMovingWindow = false
+        isAutoHidden = false
+        dockContainer?.hideRevealIndicator()
+        hostingView?.isHidden = false
+        hostingView?.alphaValue = 1
+        dockDelegate = nil
+        delegate = nil
+        orderOut(nil)
+        contentView = nil
+        close()
+    }
+
+    private var dockContainer: DockContainerView? {
+        contentView as? DockContainerView
+    }
+
+    private func revealEdge(for edge: DockEdge) -> DockRevealEdge {
+        switch edge {
+        case .left: return .left
+        case .right: return .right
+        case .top: return .top
+        case .bottom: return .bottom
+        }
+    }
+
+    private var activeScreen: NSScreen? {
+        let center = NSPoint(x: frame.midX, y: frame.midY)
+        return NSScreen.screens.first(where: { $0.frame.contains(center) })
+            ?? screen
+            ?? NSScreen.main
+    }
+
+    private func hiddenFrame(for frame: NSRect, at edge: DockEdge, in visibleFrame: NSRect) -> NSRect {
+        var hidden = frame
+
+        switch edge {
+        case .left:
+            hidden.origin.x = visibleFrame.minX - frame.width + revealThickness
+        case .right:
+            hidden.origin.x = visibleFrame.maxX - revealThickness
+        case .bottom:
+            hidden.origin.y = visibleFrame.minY - frame.height + revealThickness
+        case .top:
+            hidden.origin.y = visibleFrame.maxY - revealThickness
+        }
+
+        return hidden
     }
 }
