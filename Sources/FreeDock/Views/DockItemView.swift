@@ -17,6 +17,8 @@ struct DockItemView: View {
     @State private var bouncing = false
 
     let orientation: Orientation
+    let showRunningIndicator: Bool
+    let indicatorColor: Color
 
     private var isRunning: Bool {
         guard let bid = bundleID else { return false }
@@ -41,13 +43,16 @@ struct DockItemView: View {
                 .shadow(color: .black.opacity(isHovering ? 0.25 : 0.14), radius: isHovering ? 8 : 3, x: 0, y: 3)
                 .overlay(alignment: orientation == .horizontal ? .bottom : .leading) {
                     Circle()
-                        .fill(Color.primary.opacity(0.78))
+                        .fill(indicatorColor.opacity(0.78))
                         .frame(width: 4, height: 4)
                         .shadow(color: .black.opacity(0.16), radius: 1, y: 1)
                         .offset(orientation == .horizontal ? CGSize(width: 0, height: 7) : CGSize(width: -7, height: 0))
-                        .opacity(isRunning ? 1 : 0)
-                        .scaleEffect(isRunning ? 1 : 0.35)
-                        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: isRunning)
+                        .opacity(isRunning && showRunningIndicator ? 1 : 0)
+                        .scaleEffect(isRunning && showRunningIndicator ? 1 : 0.35)
+                        .animation(
+                            .spring(response: 0.35, dampingFraction: 0.65),
+                            value: isRunning && showRunningIndicator
+                        )
                 }
         }
         .background(ScreenRectReader { screenRect = $0 })

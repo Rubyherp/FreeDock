@@ -12,6 +12,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var _lockPositions = false
     private var dockStates: [UUID: DockState] = [:]
+    private var preferencesStore: DockPreferencesStore?
+    private var preferencesWindowController: PreferencesWindowController?
+    private var menuRefreshWorkItem: DispatchWorkItem?
+    private var dockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
+
     private struct IconSizeSelection {
         let dockID: UUID
         let size: Double
@@ -187,6 +192,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(removeItem)
 
         menu.addItem(.separator())
+        let preferencesItem = NSMenuItem(
+            title: "Preferences…",
+            action: #selector(showPreferences),
+            keyEquivalent: ","
+        )
+        preferencesItem.keyEquivalentModifierMask = [.command]
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
+
+        menu.addItem(.separator())
         let lockItem = NSMenuItem(title: "Lock Dock Positions", action: #selector(toggleLockPositions), keyEquivalent: "l")
         lockItem.state = _lockPositions ? .on : .off
         menu.addItem(lockItem)
@@ -194,6 +209,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit FreeDock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
         configureGlobalShortcuts()
+        refreshPreferencesSnapshot()
+    }
+
+    @objc private func showPreferences() {
+        if preferencesStore == nil {
+            let store = DockPreferencesStore(
+                profileID: configManager.config.activeProfileID,
+                profileName: configManager.config.activeProfileName,
+                docks: configManager.config.docks
+            ) { [weak self] dockID, change in
+                self?.applyDockPreference(change, to: dockID)
+            }
+            preferencesStore = store
+            preferencesWindowController = PreferencesWindowController(store: store)
+        }
+
+        refreshPreferencesSnapshot()
+        preferencesWindowController?.show()
+    }
+
+    private func refreshPreferencesSnapshot() {
+        preferencesStore?.reload(
+            profileID: configManager.config.activeProfileID,
+            profileName: configManager.config.activeProfileName,
+            docks: configManager.config.docks
+        )
+    }
+
+    private func scheduleMenuRefresh() {
+        menuRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.rebuildMenu()
+        }
+        menuRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
     private let snapDistance: CGFloat = 15
@@ -474,6 +524,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         if let panel = dockPanels[id] {
+            dockResizeWorkItems[id]?.cancel()
+            dockResizeWorkItems.removeValue(forKey: id)
             panel.tearDown()
             dockPanels.removeValue(forKey: id)
             dockStates.removeValue(forKey: id)
@@ -485,6 +537,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func deleteDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
+        dockResizeWorkItems[id]?.cancel()
+        dockResizeWorkItems.removeValue(forKey: id)
         dockPanels[id]?.tearDown()
         dockPanels.removeValue(forKey: id)
         dockStates.removeValue(forKey: id)
@@ -503,33 +557,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleDockAutoHide(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID,
-              let index = configManager.config.docks.firstIndex(where: { $0.id == id })
+              let dock = configManager.config.docks.first(where: { $0.id == id })
         else { return }
 
-        configManager.config.docks[index].autoHideWhenDocked.toggle()
-        let autoHideEnabled = configManager.config.docks[index].autoHideWhenDocked
-        dockPanels[id]?.autoHideWhenDocked = autoHideEnabled
-
-        if autoHideEnabled, let panel = dockPanels[id] {
-            panel.revealImmediately()
-            let dockedFrame = frameDockedToNearestEdge(
-                panel.frameForPersistence,
-                orientation: configManager.config.docks[index].orientation
-            )
-            panel.setFrame(dockedFrame, display: true, animate: true)
-            configManager.config.docks[index].position = dockedFrame.origin
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
-                panel?.updateAutoHideEdge()
-                panel?.scheduleAutoHide()
-            }
-        }
-        configManager.save()
-        rebuildMenu()
+        applyDockPreference(
+            .autoHideWhenDocked(!dock.autoHideWhenDocked),
+            to: id
+        )
     }
 
     @objc private func dockToNearestEdge(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID,
-              let index = configManager.config.docks.firstIndex(where: { $0.id == id }),
+        guard let id = sender.representedObject as? UUID else { return }
+        dockPanelToNearestEdge(id)
+    }
+
+    private func dockPanelToNearestEdge(_ id: UUID) {
+        guard let index = configManager.config.docks.firstIndex(where: { $0.id == id }),
               let panel = dockPanels[id]
         else { return }
 
@@ -541,6 +584,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrame(dockedFrame, display: true, animate: true)
         configManager.config.docks[index].position = dockedFrame.origin
         configManager.save()
+        refreshPreferencesSnapshot()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
             panel?.updateAutoHideEdge()
@@ -576,16 +620,125 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func changeIconSize(_ sender: NSMenuItem) {
-        guard let selection = sender.representedObject as? IconSizeSelection,
-              let index = configManager.config.docks.firstIndex(where: { $0.id == selection.dockID })
-        else { return }
+        guard let selection = sender.representedObject as? IconSizeSelection else { return }
 
-        configManager.config.docks[index].iconSize = selection.size
+        applyDockPreference(.iconSize(selection.size), to: selection.dockID)
+    }
+
+    private func applyDockPreference(_ change: DockPreferenceChange, to dockID: UUID) {
+        var docks = configManager.config.docks
+        guard let index = docks.firstIndex(where: { $0.id == dockID }) else { return }
+
+        let previous = docks[index]
+        docks[index].apply(change)
+        let updated = docks[index]
+        configManager.config.docks = docks
+        preferencesStore?.replaceDock(updated)
+
+        if previous.orientation != updated.orientation {
+            rebuildVisibleDock(dockID, using: updated)
+        } else {
+            dockStates[dockID]?.apply(updated)
+            if let panel = dockPanels[dockID] {
+                panel.autoHideDelay = updated.autoHideDelay
+            }
+
+            switch change {
+            case .iconSize, .magnification, .itemSpacing:
+                scheduleDockResize(dockID)
+            case let .autoHideWhenDocked(enabled):
+                updateAutoHideRuntime(
+                    for: dockID,
+                    enabled: enabled,
+                    orientation: updated.orientation
+                )
+            case .autoHideDelay:
+                dockPanels[dockID]?.scheduleAutoHide()
+            case .appearance, .cornerRadius, .showRunningIndicators, .orientation:
+                break
+            }
+        }
+
         configManager.save()
+        refreshPreferencesSnapshot()
 
-        dockStates[selection.dockID]?.iconSize = selection.size
-        dockPanels[selection.dockID]?.resizeToFitContent()
-        rebuildMenu()
+        switch change {
+        case .iconSize, .autoHideWhenDocked:
+            scheduleMenuRefresh()
+        case .orientation, .magnification, .itemSpacing, .appearance,
+             .cornerRadius, .showRunningIndicators, .autoHideDelay:
+            break
+        }
+    }
+
+    private func scheduleDockResize(_ dockID: UUID) {
+        guard let panel = dockPanels[dockID] else { return }
+
+        panel.revealImmediately()
+        dockResizeWorkItems[dockID]?.cancel()
+
+        let work = DispatchWorkItem { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            panel.resizeToFitContent()
+            panel.updateAutoHideEdge()
+
+            if panel.autoHideWhenDocked {
+                panel.scheduleAutoHide()
+            }
+
+            if let index = self.configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
+                self.configManager.config.docks[index].position = panel.frameForPersistence.origin
+                self.configManager.save()
+            }
+            self.dockResizeWorkItems.removeValue(forKey: dockID)
+        }
+        dockResizeWorkItems[dockID] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: work)
+    }
+
+    private func updateAutoHideRuntime(
+        for dockID: UUID,
+        enabled: Bool,
+        orientation: Orientation
+    ) {
+        guard let panel = dockPanels[dockID] else { return }
+
+        panel.autoHideWhenDocked = enabled
+        guard enabled else { return }
+
+        panel.revealImmediately()
+        let dockedFrame = frameDockedToNearestEdge(
+            panel.frameForPersistence,
+            orientation: orientation
+        )
+        panel.setFrame(dockedFrame, display: true, animate: true)
+        if let index = configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
+            configManager.config.docks[index].position = dockedFrame.origin
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
+            panel?.updateAutoHideEdge()
+            panel?.scheduleAutoHide()
+        }
+    }
+
+    private func rebuildVisibleDock(_ dockID: UUID, using config: DockConfig) {
+        guard let panel = dockPanels[dockID] else { return }
+
+        dockResizeWorkItems[dockID]?.cancel()
+        dockResizeWorkItems.removeValue(forKey: dockID)
+        let visibleOrigin = panel.frameForPersistence.origin
+        panel.revealImmediately()
+        panel.tearDown()
+        dockPanels.removeValue(forKey: dockID)
+        dockStates.removeValue(forKey: dockID)
+
+        var rebuiltConfig = config
+        rebuiltConfig.position = visibleOrigin
+        if let index = configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
+            configManager.config.docks[index].position = visibleOrigin
+        }
+        showDock(rebuiltConfig)
     }
 
     private func showDock(_ config: DockConfig) {
@@ -595,8 +748,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.clampToVisibleFrame()
 
         let dockID = config.id
-        let state = DockState(iconSize: config.iconSize)
-        dockStates[config.id] = state // ← store it
+        let state = DockState(config: config)
+        dockStates[config.id] = state
 
         let content = DockContentView(
             panel: panel,
@@ -617,6 +770,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         panel.dockOrientation = config.orientation
+        panel.autoHideDelay = config.autoHideDelay
         panel.autoHideWhenDocked = config.autoHideWhenDocked
         panel.setContentView(content)
         panel.dockDelegate = self
@@ -654,6 +808,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeAllDockPanels() {
         TooltipManager.shared.hide()
+        for work in dockResizeWorkItems.values {
+            work.cancel()
+        }
+        dockResizeWorkItems.removeAll()
         for panel in dockPanels.values {
             panel.tearDown()
         }
@@ -690,16 +848,7 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidResize(_ panel: DockPanel, proposedIconSize: Double) {
-        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
-
-        // Update reactive state → SwiftUI reflows content
-        dockStates[panel.dockID]?.iconSize = proposedIconSize
-        configManager.config.docks[idx].iconSize = proposedIconSize
-
-        // Fit panel to the new content size
-        DispatchQueue.main.async {
-            panel.resizeToFitContent()
-        }
+        applyDockPreference(.iconSize(proposedIconSize), to: panel.dockID)
     }
 
     func dockPanelDidFinishResize(_ panel: DockPanel) {
@@ -712,5 +861,7 @@ extension AppDelegate: DockPanelDelegate {
         panel.updateAutoHideEdge()
         configManager.config.docks[idx].position = panel.frameForPersistence.origin
         configManager.save()
+        refreshPreferencesSnapshot()
+        scheduleMenuRefresh()
     }
 }

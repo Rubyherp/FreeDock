@@ -27,10 +27,23 @@ struct DockContentView: View {
         displayedItems ?? items
     }
 
-    private var surfaceCornerRadius: CGFloat { 18 }
+    private var surfaceCornerRadius: CGFloat {
+        CGFloat(state.cornerRadius)
+    }
 
     private var magnificationHeadroom: CGFloat {
-        max(10, iconSize * 0.34)
+        max(10, iconSize * (state.magnification - 1 + 0.04))
+    }
+
+    private var chromeColor: Color {
+        switch state.appearance {
+        case .glass:
+            return .primary
+        case .light:
+            return .black
+        case .dark:
+            return .white
+        }
     }
 
     var body: some View {
@@ -57,7 +70,7 @@ struct DockContentView: View {
     @ViewBuilder
     private var dockLayout: some View {
         if orientation == .horizontal {
-            HStack(spacing: 3) { content }
+            HStack(spacing: state.itemSpacing) { content }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 9)
                 .background(dockSurface)
@@ -71,7 +84,7 @@ struct DockContentView: View {
                 }
                 .padding(.top, magnificationHeadroom)
         } else {
-            VStack(spacing: 3) { content }
+            VStack(spacing: state.itemSpacing) { content }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 8)
                 .background(dockSurface)
@@ -92,13 +105,17 @@ struct DockContentView: View {
         if currentItems.isEmpty {
             Label("Drop apps", systemImage: "plus.circle.fill")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary.opacity(0.85))
+                .foregroundStyle(chromeColor.opacity(0.65))
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
-                    DockSeparatorView(orientation: orientation, iconSize: iconSize)
+                    DockSeparatorView(
+                        orientation: orientation,
+                        iconSize: iconSize,
+                        color: chromeColor
+                    )
                         .contentShape(Rectangle())
                         .contextMenu {
                             Button("Remove Separator", role: .destructive) {
@@ -121,7 +138,9 @@ struct DockContentView: View {
                         onLaunch: { onAppLaunch(item) },
                         onRemove: { removeItem(item) },
                         hoveredItem: $hoveredItem,
-                        orientation: orientation
+                        orientation: orientation,
+                        showRunningIndicator: state.showRunningIndicators,
+                        indicatorColor: chromeColor
                     )
                     .frame(
                         width: iconSize + 9,
@@ -182,10 +201,12 @@ struct DockContentView: View {
     struct DockSeparatorView: View {
         let orientation: Orientation
         let iconSize: Double
+        let color: Color
+
         var body: some View {
             ZStack {
                 Capsule()
-                    .fill(Color.primary.opacity(0.16))
+                    .fill(color.opacity(0.16))
                     .frame(
                         width: orientation == .horizontal ? 1 : iconSize * 0.54,
                         height: orientation == .horizontal ? iconSize * 0.54 : 1
@@ -205,10 +226,13 @@ struct DockContentView: View {
             return 1.0
         }
 
+        let peak = CGFloat(state.magnification)
+        let delta = peak - 1
+
         switch abs(index - hoveredIndex) {
-        case 0: return 1.30
-        case 1: return 1.15
-        case 2: return 1.06
+        case 0: return peak
+        case 1: return 1 + delta * 0.5
+        case 2: return 1 + delta * 0.2
         default: return 1.0
         }
     }
@@ -221,29 +245,56 @@ struct DockContentView: View {
 
     private var dockSurface: some View {
         let shape = RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous)
-        return shape
-            .fill(.regularMaterial)
-            .overlay {
-                shape.fill(
-                    LinearGradient(
-                        colors: [.white.opacity(0.18), .white.opacity(0.045), .black.opacity(0.035)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+        return ZStack {
+            shape
+                .fill(.regularMaterial)
+                .opacity(state.appearance == .glass ? 1 : 0)
+
+            shape
+                .fill(Color(red: 0.96, green: 0.96, blue: 0.97).opacity(0.94))
+                .opacity(state.appearance == .light ? 1 : 0)
+
+            shape
+                .fill(Color(red: 0.075, green: 0.078, blue: 0.09).opacity(0.92))
+                .opacity(state.appearance == .dark ? 1 : 0)
+
+            shape.fill(
+                LinearGradient(
+                    colors: [.white.opacity(0.18), .white.opacity(0.045), .black.opacity(0.035)],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-            }
-            .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.30), .white.opacity(0.10), .black.opacity(0.08)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 0.75
-                )
-            }
-            .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 8)
-            .shadow(color: .black.opacity(0.10), radius: 2, x: 0, y: 1)
+            )
+            .opacity(state.appearance == .glass ? 1 : 0)
+        }
+        .overlay {
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: surfaceBorderColors,
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.75
+            )
+        }
+        .shadow(
+            color: .black.opacity(state.appearance == .dark ? 0.32 : 0.22),
+            radius: 16,
+            x: 0,
+            y: 8
+        )
+        .shadow(color: .black.opacity(0.10), radius: 2, x: 0, y: 1)
+    }
+
+    private var surfaceBorderColors: [Color] {
+        switch state.appearance {
+        case .glass:
+            return [.white.opacity(0.30), .white.opacity(0.10), .black.opacity(0.08)]
+        case .light:
+            return [.white.opacity(0.90), .white.opacity(0.42), .black.opacity(0.16)]
+        case .dark:
+            return [.white.opacity(0.25), .white.opacity(0.10), .black.opacity(0.28)]
+        }
     }
 
     private func updateDropPulse(_ targeted: Bool) {

@@ -11,10 +11,10 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Persisted dock positions and size
 - Saved dock profiles for activities such as Work, Design, and Focus
 - Global shortcuts to reveal docks and switch profiles
+- A dedicated preferences window for per-dock behavior and appearance
 
 ## Next: better daily workflows
 
-- A dedicated preferences window for dock behavior and appearance
 - Optional import of the apps in the system Dock
 - Per-display placement and profile selection
 

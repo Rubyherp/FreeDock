@@ -12,6 +12,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
 
     let dockID: UUID
     var dockOrientation: Orientation = .horizontal
+    var autoHideDelay: TimeInterval = 1
     var autoHideWhenDocked = true {
         didSet {
             guard oldValue != autoHideWhenDocked else { return }
@@ -220,7 +221,10 @@ class DockPanel: NSPanel, NSWindowDelegate {
         }
 
         hideWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0.1, autoHideDelay),
+            execute: work
+        )
     }
 
     func cancelAutoHide() {

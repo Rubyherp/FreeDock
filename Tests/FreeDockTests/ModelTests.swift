@@ -15,7 +15,10 @@ func dockItemRoundTrip() throws {
 func dockConfigRoundTrip() throws {
     let item = DockItem(appPath: "/App.app")
     let config = DockConfig(id: UUID(), name: "Test", position: CGPoint(x: 100, y: 200),
-                            orientation: .vertical, iconSize: 64, items: [item])
+                            orientation: .vertical, iconSize: 64, items: [item],
+                            autoHideWhenDocked: false, magnification: 1.55,
+                            itemSpacing: 9, appearance: .dark, cornerRadius: 24,
+                            showRunningIndicators: false, autoHideDelay: 2.4)
     let data = try JSONEncoder().encode(config)
     let decoded = try JSONDecoder().decode(DockConfig.self, from: data)
     #expect(decoded.name == "Test")
@@ -23,7 +26,13 @@ func dockConfigRoundTrip() throws {
     #expect(decoded.iconSize == 64)
     #expect(decoded.items.count == 1)
     #expect(decoded.position == CGPoint(x: 100, y: 200))
-    #expect(decoded.autoHideWhenDocked)
+    #expect(!decoded.autoHideWhenDocked)
+    #expect(decoded.magnification == 1.55)
+    #expect(decoded.itemSpacing == 9)
+    #expect(decoded.appearance == .dark)
+    #expect(decoded.cornerRadius == 24)
+    #expect(!decoded.showRunningIndicators)
+    #expect(decoded.autoHideDelay == 2.4)
 }
 
 @Test("DockConfig defaults edge auto-hide when loading an older config")
@@ -41,6 +50,48 @@ func dockConfigMigratesAutoHidePreference() throws {
 
     let decoded = try JSONDecoder().decode(DockConfig.self, from: data)
     #expect(decoded.autoHideWhenDocked)
+    #expect(decoded.magnification == 1.30)
+    #expect(decoded.itemSpacing == 3)
+    #expect(decoded.appearance == .glass)
+    #expect(decoded.cornerRadius == 18)
+    #expect(decoded.showRunningIndicators)
+    #expect(decoded.autoHideDelay == 1)
+}
+
+@Test("DockConfig normalizes out-of-range preferences")
+func dockConfigNormalizesPreferences() {
+    let config = DockConfig(
+        name: "Extreme",
+        iconSize: 500,
+        magnification: 0.2,
+        itemSpacing: -4,
+        cornerRadius: 100,
+        autoHideDelay: 0
+    )
+
+    #expect(config.iconSize == DockConfig.iconSizeRange.upperBound)
+    #expect(config.magnification == DockConfig.magnificationRange.lowerBound)
+    #expect(config.itemSpacing == DockConfig.itemSpacingRange.lowerBound)
+    #expect(config.cornerRadius == DockConfig.cornerRadiusRange.upperBound)
+    #expect(config.autoHideDelay == DockConfig.autoHideDelayRange.lowerBound)
+}
+
+@Test("Unknown dock appearance falls back to glass")
+func dockConfigUnknownAppearanceFallback() throws {
+    let data = """
+    {
+      "id": "F8CCF00C-3001-4D86-B572-1B5E4B5DBFEA",
+      "name": "Future Dock",
+      "position": [40, 80],
+      "orientation": "horizontal",
+      "iconSize": 48,
+      "items": [],
+      "appearance": "future-material"
+    }
+    """.data(using: .utf8)!
+
+    let decoded = try JSONDecoder().decode(DockConfig.self, from: data)
+    #expect(decoded.appearance == .glass)
 }
 
 @Test("AppConfig holds multiple docks")
@@ -183,4 +234,41 @@ func globalShortcutProfileKeys() {
     #expect(GlobalShortcutManager.profileKeyCodes.count == 9)
     #expect(Set(GlobalShortcutManager.profileKeyCodes).count == 9)
     #expect(GlobalShortcutManager.standardModifiers != 0)
+}
+
+@MainActor
+@Test("Preferences keep selection by dock ID and clamp live changes")
+func preferencesStoreSelectionAndUpdates() {
+    let first = DockConfig(name: "First")
+    let second = DockConfig(name: "Second")
+    var received: (UUID, DockPreferenceChange)?
+    let profileID = UUID()
+    let store = DockPreferencesStore(
+        profileID: profileID,
+        profileName: "Work",
+        docks: [first, second]
+    ) { dockID, change in
+        received = (dockID, change)
+    }
+
+    store.selectedDockID = second.id
+    store.reload(
+        profileID: profileID,
+        profileName: "Work",
+        docks: [DockConfig(id: first.id, name: "First"), DockConfig(id: second.id, name: "Renamed")]
+    )
+    #expect(store.selectedDockID == second.id)
+
+    store.updateSelected(.magnification(9))
+    #expect(store.selectedDock?.magnification == DockConfig.magnificationRange.upperBound)
+    #expect(received?.0 == second.id)
+    #expect(received?.1 == .magnification(9))
+
+    let replacement = DockConfig(name: "Personal Dock")
+    store.reload(
+        profileID: UUID(),
+        profileName: "Personal",
+        docks: [replacement]
+    )
+    #expect(store.selectedDockID == replacement.id)
 }
