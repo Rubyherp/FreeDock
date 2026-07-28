@@ -12,6 +12,17 @@ enum DockPreferenceChange: Equatable {
     case autoHideDelay(Double)
 }
 
+enum DockManagementAction: Equatable {
+    case activateProfile(UUID)
+    case createProfile
+    case renameActiveProfile
+    case deleteActiveProfile
+    case createDock(Orientation)
+    case renameDock(UUID)
+    case duplicateDock(UUID)
+    case deleteDock(UUID)
+}
+
 extension DockConfig {
     mutating func apply(_ change: DockPreferenceChange) {
         switch change {
@@ -39,24 +50,35 @@ extension DockConfig {
 
 @MainActor
 final class DockPreferencesStore: ObservableObject {
-    @Published private(set) var profileName: String
+    @Published private(set) var profiles: [DockProfile]
+    @Published private(set) var activeProfileID: UUID
     @Published private(set) var docks: [DockConfig]
     @Published var selectedDockID: UUID?
 
-    private var profileID: UUID
     private let onChange: (UUID, DockPreferenceChange) -> Void
+    private let onManagementAction: (DockManagementAction) -> Void
 
     init(
-        profileID: UUID,
-        profileName: String,
-        docks: [DockConfig],
-        onChange: @escaping (UUID, DockPreferenceChange) -> Void
+        profiles: [DockProfile],
+        activeProfileID: UUID,
+        onChange: @escaping (UUID, DockPreferenceChange) -> Void,
+        onManagementAction: @escaping (DockManagementAction) -> Void
     ) {
-        self.profileID = profileID
-        self.profileName = profileName
-        self.docks = docks
-        selectedDockID = docks.first?.id
+        self.profiles = profiles
+        self.activeProfileID = activeProfileID
+        let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
+        docks = activeDocks
+        selectedDockID = activeDocks.first?.id
         self.onChange = onChange
+        self.onManagementAction = onManagementAction
+    }
+
+    var activeProfileName: String {
+        profiles.first(where: { $0.id == activeProfileID })?.name ?? "Default"
+    }
+
+    var canDeleteActiveProfile: Bool {
+        profiles.count > 1
     }
 
     var selectedDock: DockConfig? {
@@ -64,14 +86,15 @@ final class DockPreferencesStore: ObservableObject {
         return docks.first(where: { $0.id == selectedDockID })
     }
 
-    func reload(profileID: UUID, profileName: String, docks: [DockConfig]) {
-        let profileChanged = profileID != self.profileID
-        self.profileID = profileID
-        self.profileName = profileName
-        self.docks = docks
+    func reload(profiles: [DockProfile], activeProfileID: UUID) {
+        let profileChanged = activeProfileID != self.activeProfileID
+        self.profiles = profiles
+        self.activeProfileID = activeProfileID
+        let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
+        docks = activeDocks
 
-        if profileChanged || !docks.contains(where: { $0.id == selectedDockID }) {
-            selectedDockID = docks.first?.id
+        if profileChanged || !activeDocks.contains(where: { $0.id == selectedDockID }) {
+            selectedDockID = activeDocks.first?.id
         }
     }
 
@@ -87,5 +110,9 @@ final class DockPreferencesStore: ObservableObject {
 
         docks[index].apply(change)
         onChange(selectedDockID, change)
+    }
+
+    func perform(_ action: DockManagementAction) {
+        onManagementAction(action)
     }
 }

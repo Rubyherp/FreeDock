@@ -215,11 +215,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showPreferences() {
         if preferencesStore == nil {
             let store = DockPreferencesStore(
-                profileID: configManager.config.activeProfileID,
-                profileName: configManager.config.activeProfileName,
-                docks: configManager.config.docks
+                profiles: configManager.config.profiles,
+                activeProfileID: configManager.config.activeProfileID
             ) { [weak self] dockID, change in
                 self?.applyDockPreference(change, to: dockID)
+            } onManagementAction: { [weak self] action in
+                self?.handleDockManagementAction(action)
             }
             preferencesStore = store
             preferencesWindowController = PreferencesWindowController(store: store)
@@ -231,10 +232,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshPreferencesSnapshot() {
         preferencesStore?.reload(
-            profileID: configManager.config.activeProfileID,
-            profileName: configManager.config.activeProfileName,
-            docks: configManager.config.docks
+            profiles: configManager.config.profiles,
+            activeProfileID: configManager.config.activeProfileID
         )
+    }
+
+    private func handleDockManagementAction(_ action: DockManagementAction) {
+        switch action {
+        case let .activateProfile(profileID):
+            activateProfile(profileID)
+        case .createProfile:
+            createProfile()
+        case .renameActiveProfile:
+            renameCurrentProfile()
+        case .deleteActiveProfile:
+            deleteCurrentProfile()
+        case let .createDock(orientation):
+            createDock(orientation: orientation)
+        case let .renameDock(dockID):
+            promptToRenameDock(dockID)
+        case let .duplicateDock(dockID):
+            duplicateDock(dockID)
+        case let .deleteDock(dockID):
+            confirmAndDeleteDock(dockID)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.preferencesWindowController?.show()
+        }
     }
 
     private func scheduleMenuRefresh() {
@@ -400,9 +425,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = profile.docks.isEmpty
             ? "This profile is empty."
             : "This permanently removes \(profile.docks.count) dock\(profile.docks.count == 1 ? "" : "s") from the profile."
-        alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let deleteButton = alert.addButton(withTitle: "Delete")
+        deleteButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
 
         saveAllPositions()
         closeAllDockPanels()
@@ -493,11 +519,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createDock(orientation: Orientation) {
-        let dock = DockConfig(name: "Dock \(configManager.config.docks.count + 1)", position: defaultDockPosition, orientation: orientation)
+        let dock = DockConfig(
+            name: suggestedDockName(),
+            position: defaultDockPosition,
+            orientation: orientation
+        )
         configManager.config.docks.append(dock)
         showDock(dock)
         configManager.save()
         rebuildMenu()
+        preferencesStore?.selectedDockID = dock.id
+    }
+
+    private func suggestedDockName() -> String {
+        let existing = Set(configManager.config.docks.map { $0.name.lowercased() })
+        var number = 1
+        var candidate = "Dock \(number)"
+
+        while existing.contains(candidate.lowercased()) {
+            number += 1
+            candidate = "Dock \(number)"
+        }
+        return candidate
+    }
+
+    private func suggestedDuplicateName(for sourceName: String) -> String {
+        let existing = Set(configManager.config.docks.map { $0.name.lowercased() })
+        let base = "\(sourceName) Copy"
+        var candidate = base
+        var number = 2
+
+        while existing.contains(candidate.lowercased()) {
+            candidate = "\(base) \(number)"
+            number += 1
+        }
+        return candidate
     }
 
     private func createInitialSeededDock() {
@@ -537,6 +593,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func deleteDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
+        confirmAndDeleteDock(id)
+    }
+
+    private func confirmAndDeleteDock(_ id: UUID) {
+        guard let dock = configManager.config.docks.first(where: { $0.id == id }) else { return }
+
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(dock.name)”?"
+        alert.informativeText = "This removes the dock from the current profile. The apps themselves will not be deleted."
+        alert.addButton(withTitle: "Cancel")
+        let deleteButton = alert.addButton(withTitle: "Delete")
+        deleteButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        performDeleteDock(id)
+    }
+
+    private func performDeleteDock(_ id: UUID) {
         dockResizeWorkItems[id]?.cancel()
         dockResizeWorkItems.removeValue(forKey: id)
         dockPanels[id]?.tearDown()
@@ -593,30 +669,86 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func renameDock(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID,
-              let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
+        guard let id = sender.representedObject as? UUID else { return }
+        promptToRenameDock(id)
+    }
 
-        let alert = NSAlert()
-        alert.icon = NSApp.applicationIconImage
-        alert.messageText = "Rename Dock"
-        alert.informativeText = "Enter a new name for the dock:"
+    private func promptToRenameDock(_ id: UUID) {
+        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
+        var proposedValue = configManager.config.docks[idx].name
 
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        field.stringValue = configManager.config.docks[idx].name
-        alert.accessoryView = field
+        while true {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = "Rename Dock"
+            alert.informativeText = "Enter a new name for the dock:"
 
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+            field.stringValue = proposedValue
+            field.selectText(nil)
+            alert.accessoryView = field
 
-        if alert.runModal() == .alertFirstButtonReturn {
-            let newName = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-            guard !newName.isEmpty else { return }
+            proposedValue = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if proposedValue.isEmpty {
+                showDockNameError("Dock names cannot be empty.")
+                continue
+            }
 
-            configManager.config.docks[idx].name = newName
+            let isDuplicate = configManager.config.docks.contains {
+                $0.id != id
+                    && $0.name.compare(
+                        proposedValue,
+                        options: [.caseInsensitive, .diacriticInsensitive]
+                    ) == .orderedSame
+            }
+            if isDuplicate {
+                showDockNameError("A dock named “\(proposedValue)” already exists in this profile.")
+                continue
+            }
+
+            guard let currentIndex = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
+            configManager.config.docks[currentIndex].name = proposedValue
             configManager.save()
             rebuildMenu()
+            return
         }
+    }
+
+    private func showDockNameError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Choose Another Dock Name"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func duplicateDock(_ id: UUID) {
+        saveAllPositions()
+        guard let sourceIndex = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
+        let source = configManager.config.docks[sourceIndex]
+
+        var duplicatedPosition = source.position
+        if source.orientation == .horizontal {
+            duplicatedPosition.x += 32
+        } else {
+            duplicatedPosition.y -= 32
+        }
+
+        let duplicate = source.duplicated(
+            name: suggestedDuplicateName(for: source.name),
+            position: duplicatedPosition
+        )
+
+        configManager.config.docks.insert(duplicate, at: sourceIndex + 1)
+        showDock(duplicate)
+        configManager.save()
+        rebuildMenu()
+        preferencesStore?.selectedDockID = duplicate.id
     }
 
     @objc private func changeIconSize(_ sender: NSMenuItem) {

@@ -46,6 +46,27 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         min(max(value, range.lowerBound), range.upperBound)
     }
 
+    func duplicated(name: String, position: CGPoint) -> DockConfig {
+        DockConfig(
+            name: name,
+            position: position,
+            orientation: orientation,
+            iconSize: iconSize,
+            items: items.map { item in
+                item.isSeparator
+                    ? DockItem.separator()
+                    : DockItem(appPath: item.appPath, label: item.label)
+            },
+            autoHideWhenDocked: autoHideWhenDocked,
+            magnification: magnification,
+            itemSpacing: itemSpacing,
+            appearance: appearance,
+            cornerRadius: cornerRadius,
+            showRunningIndicators: showRunningIndicators,
+            autoHideDelay: autoHideDelay
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

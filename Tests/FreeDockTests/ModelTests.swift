@@ -76,6 +76,48 @@ func dockConfigNormalizesPreferences() {
     #expect(config.autoHideDelay == DockConfig.autoHideDelayRange.lowerBound)
 }
 
+@Test("Duplicating a dock preserves settings with fresh identities")
+func dockConfigDuplicate() {
+    let original = DockConfig(
+        name: "Original",
+        position: CGPoint(x: 10, y: 20),
+        orientation: .vertical,
+        iconSize: 72,
+        items: [
+            DockItem(appPath: "/Applications/Test.app", label: "Test"),
+            .separator(),
+        ],
+        autoHideWhenDocked: false,
+        magnification: 1.5,
+        itemSpacing: 8,
+        appearance: .dark,
+        cornerRadius: 22,
+        showRunningIndicators: false,
+        autoHideDelay: 2
+    )
+
+    let duplicate = original.duplicated(
+        name: "Original Copy",
+        position: CGPoint(x: 42, y: 20)
+    )
+
+    #expect(duplicate.id != original.id)
+    #expect(duplicate.name == "Original Copy")
+    #expect(duplicate.position == CGPoint(x: 42, y: 20))
+    #expect(duplicate.orientation == original.orientation)
+    #expect(duplicate.iconSize == original.iconSize)
+    #expect(duplicate.autoHideWhenDocked == original.autoHideWhenDocked)
+    #expect(duplicate.magnification == original.magnification)
+    #expect(duplicate.itemSpacing == original.itemSpacing)
+    #expect(duplicate.appearance == original.appearance)
+    #expect(duplicate.cornerRadius == original.cornerRadius)
+    #expect(duplicate.showRunningIndicators == original.showRunningIndicators)
+    #expect(duplicate.autoHideDelay == original.autoHideDelay)
+    #expect(duplicate.items.map(\.id) != original.items.map(\.id))
+    #expect(duplicate.items.map(\.appPath) == original.items.map(\.appPath))
+    #expect(duplicate.items.map(\.isSeparator) == original.items.map(\.isSeparator))
+}
+
 @Test("Unknown dock appearance falls back to glass")
 func dockConfigUnknownAppearanceFallback() throws {
     let data = """
@@ -242,20 +284,33 @@ func preferencesStoreSelectionAndUpdates() {
     let first = DockConfig(name: "First")
     let second = DockConfig(name: "Second")
     var received: (UUID, DockPreferenceChange)?
+    var managementAction: DockManagementAction?
     let profileID = UUID()
+    let workProfile = DockProfile(id: profileID, name: "Work", docks: [first, second])
     let store = DockPreferencesStore(
-        profileID: profileID,
-        profileName: "Work",
-        docks: [first, second]
+        profiles: [workProfile],
+        activeProfileID: profileID
     ) { dockID, change in
         received = (dockID, change)
+    } onManagementAction: { action in
+        managementAction = action
     }
+    #expect(store.activeProfileName == "Work")
+    #expect(!store.canDeleteActiveProfile)
 
     store.selectedDockID = second.id
     store.reload(
-        profileID: profileID,
-        profileName: "Work",
-        docks: [DockConfig(id: first.id, name: "First"), DockConfig(id: second.id, name: "Renamed")]
+        profiles: [
+            DockProfile(
+                id: profileID,
+                name: "Work",
+                docks: [
+                    DockConfig(id: first.id, name: "First"),
+                    DockConfig(id: second.id, name: "Renamed"),
+                ]
+            ),
+        ],
+        activeProfileID: profileID
     )
     #expect(store.selectedDockID == second.id)
 
@@ -265,10 +320,15 @@ func preferencesStoreSelectionAndUpdates() {
     #expect(received?.1 == .magnification(9))
 
     let replacement = DockConfig(name: "Personal Dock")
+    let personalProfile = DockProfile(name: "Personal", docks: [replacement])
     store.reload(
-        profileID: UUID(),
-        profileName: "Personal",
-        docks: [replacement]
+        profiles: [workProfile, personalProfile],
+        activeProfileID: personalProfile.id
     )
     #expect(store.selectedDockID == replacement.id)
+    #expect(store.activeProfileName == "Personal")
+    #expect(store.canDeleteActiveProfile)
+
+    store.perform(.duplicateDock(replacement.id))
+    #expect(managementAction == .duplicateDock(replacement.id))
 }

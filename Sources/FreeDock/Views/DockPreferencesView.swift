@@ -6,7 +6,7 @@ struct DockPreferencesView: View {
     var body: some View {
         HSplitView {
             sidebar
-                .frame(minWidth: 190, idealWidth: 210, maxWidth: 240)
+                .frame(minWidth: 205, idealWidth: 225, maxWidth: 265)
 
             detail
                 .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
@@ -17,51 +17,203 @@ struct DockPreferencesView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PROFILE")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(store.profileName)
-                    .font(.headline)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 16)
-            .padding(.bottom, 10)
+            profileHeader
 
-            if store.docks.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "dock.rectangle")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.secondary)
-                    Text("No docks in this profile")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
-            } else {
-                List(selection: $store.selectedDockID) {
-                    ForEach(store.docks) { dock in
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(dock.name)
-                                    .lineLimit(1)
-                                Text(dock.orientation == .horizontal ? "Horizontal" : "Vertical")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+            Divider()
+
+            dockBrowser
+
+            Divider()
+
+            sidebarToolbar
+        }
+    }
+
+    private var profileHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("PROFILE")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 7) {
+                Menu {
+                    ForEach(store.profiles) { profile in
+                        Button {
+                            store.perform(.activateProfile(profile.id))
+                        } label: {
+                            if profile.id == store.activeProfileID {
+                                Label(profile.name, systemImage: "checkmark")
+                            } else {
+                                Text(profile.name)
                             }
-                        } icon: {
-                            Image(systemName: dock.orientation == .horizontal
-                                ? "rectangle.bottomthird.inset.filled"
-                                : "rectangle.leadingthird.inset.filled")
                         }
-                        .tag(dock.id)
+                    }
+
+                    Divider()
+
+                    Button {
+                        store.perform(.createProfile)
+                    } label: {
+                        Label("New Profile…", systemImage: "plus")
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.2.fill")
+                            .foregroundStyle(.secondary)
+                        Text(store.activeProfileName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Choose Profile")
+
+                Menu {
+                    Button {
+                        store.perform(.renameActiveProfile)
+                    } label: {
+                        Label("Rename Profile…", systemImage: "pencil")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        store.perform(.deleteActiveProfile)
+                    } label: {
+                        Label("Delete Profile…", systemImage: "trash")
+                    }
+                    .disabled(!store.canDeleteActiveProfile)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 15))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Manage Current Profile")
+                .accessibilityLabel("Manage Current Profile")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 15)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var dockBrowser: some View {
+        if store.docks.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "dock.rectangle")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.secondary)
+                Text("No docks in this profile")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Text("Use + below to create one.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
+        } else {
+            List(selection: $store.selectedDockID) {
+                ForEach(store.docks) { dock in
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(dock.name)
+                                .lineLimit(1)
+                            Text(dock.orientation == .horizontal ? "Horizontal" : "Vertical")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: dock.orientation == .horizontal
+                            ? "rectangle.bottomthird.inset.filled"
+                            : "rectangle.leadingthird.inset.filled")
+                    }
+                    .tag(dock.id)
+                    .contextMenu {
+                        dockActions(for: dock.id)
                     }
                 }
-                .listStyle(.sidebar)
             }
+            .listStyle(.sidebar)
+        }
+    }
+
+    private var sidebarToolbar: some View {
+        HStack(spacing: 4) {
+            Menu {
+                Button {
+                    store.perform(.createDock(.horizontal))
+                } label: {
+                    Label("Horizontal Dock", systemImage: "rectangle.split.3x1")
+                }
+
+                Button {
+                    store.perform(.createDock(.vertical))
+                } label: {
+                    Label("Vertical Dock", systemImage: "rectangle.split.1x2")
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("New Dock")
+            .accessibilityLabel("New Dock")
+
+            Spacer()
+
+            if let dockID = store.selectedDockID {
+                Menu {
+                    dockActions(for: dockID)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Manage Selected Dock")
+                .accessibilityLabel("Manage Selected Dock")
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private func dockActions(for dockID: UUID) -> some View {
+        Button {
+            store.perform(.renameDock(dockID))
+        } label: {
+            Label("Rename Dock…", systemImage: "pencil")
+        }
+
+        Button {
+            store.perform(.duplicateDock(dockID))
+        } label: {
+            Label("Duplicate Dock", systemImage: "plus.square.on.square")
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            store.perform(.deleteDock(dockID))
+        } label: {
+            Label("Delete Dock…", systemImage: "trash")
         }
     }
 
@@ -142,6 +294,7 @@ struct DockPreferencesView: View {
                             Toggle("", isOn: runningIndicatorsBinding)
                                 .labelsHidden()
                                 .toggleStyle(.switch)
+                                .accessibilityLabel("Running indicators")
                         }
                     }
 
@@ -165,6 +318,7 @@ struct DockPreferencesView: View {
                             Toggle("", isOn: autoHideBinding)
                                 .labelsHidden()
                                 .toggleStyle(.switch)
+                                .accessibilityLabel("Auto-hide at screen edge")
                         }
 
                         Divider()
@@ -244,6 +398,8 @@ struct DockPreferencesView: View {
             Text(title)
                 .frame(width: 115, alignment: .leading)
             Slider(value: value, in: range, step: step)
+                .accessibilityLabel(title)
+                .accessibilityValue(valueText)
             Text(valueText)
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
