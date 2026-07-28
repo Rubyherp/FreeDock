@@ -107,7 +107,7 @@ make run
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, and adjust each dock’s behavior and appearance. Changes are applied and saved immediately.
+**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 

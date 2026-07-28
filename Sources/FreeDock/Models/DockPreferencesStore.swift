@@ -21,6 +21,8 @@ enum DockManagementAction: Equatable {
     case renameDock(UUID)
     case duplicateDock(UUID)
     case deleteDock(UUID)
+    case resetDockSettings(UUID)
+    case copyDockSettingsToAll(UUID)
 }
 
 extension DockConfig {
@@ -84,6 +86,10 @@ final class DockPreferencesStore: ObservableObject {
     var selectedDock: DockConfig? {
         guard let selectedDockID else { return nil }
         return docks.first(where: { $0.id == selectedDockID })
+    }
+
+    var canCopySelectedDockSettings: Bool {
+        selectedDockID != nil && docks.count > 1
     }
 
     func reload(profiles: [DockProfile], activeProfileID: UUID) {

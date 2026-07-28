@@ -333,6 +333,30 @@ struct DockPreferencesView: View {
                         .disabled(!dock.autoHideWhenDocked)
                         .opacity(dock.autoHideWhenDocked ? 1 : 0.48)
                     }
+
+                    settingsSection(
+                        title: "Reuse & Reset",
+                        symbol: "arrow.triangle.2.circlepath"
+                    ) {
+                        actionRow(
+                            title: "Reset to defaults",
+                            description: "Restore this dock’s standard appearance and behavior.",
+                            buttonTitle: "Reset…"
+                        ) {
+                            store.perform(.resetDockSettings(dock.id))
+                        }
+
+                        Divider()
+
+                        actionRow(
+                            title: "Copy to other docks",
+                            description: "Apply these settings to every other dock in this profile.",
+                            buttonTitle: "Copy…",
+                            isDisabled: !store.canCopySelectedDockSettings
+                        ) {
+                            store.perform(.copyDockSettingsToAll(dock.id))
+                        }
+                    }
                 }
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
@@ -404,6 +428,29 @@ struct DockPreferencesView: View {
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 58, alignment: .trailing)
+        }
+    }
+
+    private func actionRow(
+        title: String,
+        description: String,
+        buttonTitle: String,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(buttonTitle, action: action)
+                .frame(width: 76)
+                .disabled(isDisabled)
         }
     }
 

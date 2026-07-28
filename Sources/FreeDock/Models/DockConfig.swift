@@ -1,5 +1,29 @@
 import Foundation
 
+struct DockSettings: Equatable, Sendable {
+    var orientation: Orientation
+    var iconSize: Double
+    var magnification: Double
+    var itemSpacing: Double
+    var appearance: DockAppearance
+    var cornerRadius: Double
+    var showRunningIndicators: Bool
+    var autoHideWhenDocked: Bool
+    var autoHideDelay: Double
+
+    init(_ config: DockConfig) {
+        orientation = config.orientation
+        iconSize = config.iconSize
+        magnification = config.magnification
+        itemSpacing = config.itemSpacing
+        appearance = config.appearance
+        cornerRadius = config.cornerRadius
+        showRunningIndicators = config.showRunningIndicators
+        autoHideWhenDocked = config.autoHideWhenDocked
+        autoHideDelay = config.autoHideDelay
+    }
+}
+
 struct DockConfig: Codable, Identifiable, Equatable, Sendable {
     static let iconSizeRange = 16.0 ... 128.0
     static let magnificationRange = 1.0 ... 1.75
@@ -44,6 +68,26 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
 
     static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
         min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    static var defaultSettings: DockSettings {
+        DockSettings(DockConfig(name: "Defaults"))
+    }
+
+    var settings: DockSettings {
+        DockSettings(self)
+    }
+
+    mutating func apply(settings: DockSettings) {
+        orientation = settings.orientation
+        iconSize = Self.clamp(settings.iconSize, to: Self.iconSizeRange)
+        magnification = Self.clamp(settings.magnification, to: Self.magnificationRange)
+        itemSpacing = Self.clamp(settings.itemSpacing, to: Self.itemSpacingRange)
+        appearance = settings.appearance
+        cornerRadius = Self.clamp(settings.cornerRadius, to: Self.cornerRadiusRange)
+        showRunningIndicators = settings.showRunningIndicators
+        autoHideWhenDocked = settings.autoHideWhenDocked
+        autoHideDelay = Self.clamp(settings.autoHideDelay, to: Self.autoHideDelayRange)
     }
 
     func duplicated(name: String, position: CGPoint) -> DockConfig {

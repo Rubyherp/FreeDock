@@ -118,6 +118,38 @@ func dockConfigDuplicate() {
     #expect(duplicate.items.map(\.isSeparator) == original.items.map(\.isSeparator))
 }
 
+@Test("Applying dock settings preserves dock content and placement")
+func dockConfigApplySettings() {
+    let source = DockConfig(
+        name: "Source",
+        orientation: .vertical,
+        iconSize: 88,
+        autoHideWhenDocked: false,
+        magnification: 1.6,
+        itemSpacing: 12,
+        appearance: .light,
+        cornerRadius: 26,
+        showRunningIndicators: false,
+        autoHideDelay: 3
+    )
+    var target = DockConfig(
+        name: "Target",
+        position: CGPoint(x: 80, y: 120),
+        items: [DockItem(appPath: "/Applications/Target.app")]
+    )
+    let originalID = target.id
+    let originalItems = target.items
+    let originalPosition = target.position
+
+    target.apply(settings: source.settings)
+
+    #expect(target.id == originalID)
+    #expect(target.name == "Target")
+    #expect(target.items == originalItems)
+    #expect(target.position == originalPosition)
+    #expect(target.settings == source.settings)
+}
+
 @Test("Unknown dock appearance falls back to glass")
 func dockConfigUnknownAppearanceFallback() throws {
     let data = """
@@ -297,6 +329,7 @@ func preferencesStoreSelectionAndUpdates() {
     }
     #expect(store.activeProfileName == "Work")
     #expect(!store.canDeleteActiveProfile)
+    #expect(store.canCopySelectedDockSettings)
 
     store.selectedDockID = second.id
     store.reload(
@@ -328,7 +361,8 @@ func preferencesStoreSelectionAndUpdates() {
     #expect(store.selectedDockID == replacement.id)
     #expect(store.activeProfileName == "Personal")
     #expect(store.canDeleteActiveProfile)
+    #expect(!store.canCopySelectedDockSettings)
 
-    store.perform(.duplicateDock(replacement.id))
-    #expect(managementAction == .duplicateDock(replacement.id))
+    store.perform(.copyDockSettingsToAll(replacement.id))
+    #expect(managementAction == .copyDockSettingsToAll(replacement.id))
 }
