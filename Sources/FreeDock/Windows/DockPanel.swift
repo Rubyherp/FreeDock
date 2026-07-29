@@ -38,6 +38,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private var isUserMovingWindow = false
     private var moveCompletionWorkItem: DispatchWorkItem?
     private var transientInteractionTokens = Set<UUID>()
+    private var menuInteractionTokens: [ObjectIdentifier: UUID] = [:]
     private var resizeInteractionTokens = Set<UUID>()
     private var resizeReferenceFrame: NSRect?
     private var resizeReferenceEdge: DockScreenEdge?
@@ -95,6 +96,20 @@ class DockPanel: NSPanel, NSWindowDelegate {
         titlebarAppearsTransparent = true
         isReleasedWhenClosed = false
         delegate = self
+
+        let notificationCenter = NotificationCenter.default
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(menuDidBeginTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification,
+            object: nil
+        )
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(menuDidEndTracking(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: nil
+        )
     }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
@@ -314,7 +329,31 @@ class DockPanel: NSPanel, NSWindowDelegate {
             return
         }
         updateAutoHideEdge()
-        scheduleAutoHide()
+        if !pointerIsOverDock {
+            scheduleAutoHide()
+        }
+    }
+
+    @objc private func menuDidBeginTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        let menuID = ObjectIdentifier(menu)
+        guard menuInteractionTokens[menuID] == nil else { return }
+
+        let menuAlreadyBelongsToDock = !menuInteractionTokens.isEmpty
+        guard menuAlreadyBelongsToDock || pointerIsOverDock else { return }
+
+        menuInteractionTokens[menuID] = beginTransientInteraction()
+    }
+
+    @objc private func menuDidEndTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu,
+              let token = menuInteractionTokens.removeValue(
+                  forKey: ObjectIdentifier(menu)
+              )
+        else {
+            return
+        }
+        endTransientInteraction(token)
     }
 
     /// Holds the panel steady for the duration of an interactive resize.
@@ -360,6 +399,17 @@ class DockPanel: NSPanel, NSWindowDelegate {
         hideWorkItem?.cancel()
         revealCompletionWorkItem?.cancel()
         moveCompletionWorkItem?.cancel()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSMenu.didBeginTrackingNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSMenu.didEndTrackingNotification,
+            object: nil
+        )
+        menuInteractionTokens.removeAll()
         transientInteractionTokens.removeAll()
         resizeInteractionTokens.removeAll()
         resizeReferenceFrame = nil
@@ -380,6 +430,11 @@ class DockPanel: NSPanel, NSWindowDelegate {
 
     private var dockContainer: DockContainerView? {
         contentView as? DockContainerView
+    }
+
+    private var pointerIsOverDock: Bool {
+        dockContainer?.isPointerInside == true
+            || frame.contains(NSEvent.mouseLocation)
     }
 
     private func revealEdge(for edge: DockScreenEdge) -> DockRevealEdge {

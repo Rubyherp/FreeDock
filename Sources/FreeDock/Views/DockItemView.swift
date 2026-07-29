@@ -7,6 +7,10 @@ struct DockItemView: View {
     let scale: CGFloat
     let onActivate: (NSRect) -> Void
     let onRemove: () -> Void
+    let onFolderOptionsChanged: (FolderStackOptions) -> Void
+    let hasRecentFiles: () -> Bool
+    let onClearRecentFilesRequested: () -> Void
+    let onOpenDocumentWithApplication: (URL) -> Void
 
     @ObservedObject private var monitor = RunningAppMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -152,29 +156,185 @@ struct DockItemView: View {
     @ViewBuilder
     private var itemContextMenu: some View {
         if item.smartStackSource == .recentFiles {
-            Button("Show Recent Files") { activate() }
+            recentFilesMenu
         } else if item.smartStackSource == .downloads {
-            Button("Show Downloads") { activate() }
-            if let downloadsURL {
-                Button("Open Downloads in Finder") {
-                    NSWorkspace.shared.open(downloadsURL)
-                }
-            }
+            downloadsMenu
         } else if item.kind == .folder {
-            Button("Show Contents") { activate() }
-            Button("Open in Finder") {
-                NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
-            }
+            folderMenu
+        } else if item.kind == .application {
+            applicationMenu
         } else {
-            Button("Open") { activate() }
+            documentMenu
         }
 
-        if item.fileURL != nil {
+        if item.fileURL != nil, item.kind != .folder {
+            Divider()
             Button("Show in Finder") { showInFinder() }
+                .disabled(!resolvedPresentation.isAvailable)
             Button("Copy Path") { copyPath() }
         }
         Divider()
         Button("Remove from Dock", role: .destructive) { onRemove() }
+    }
+
+    @ViewBuilder
+    private var applicationMenu: some View {
+        if let bundleID = resolvedPresentation.bundleID {
+            let state = DockApplicationActionController()
+                .state(forBundleIdentifier: bundleID)
+            if state.isRunning {
+                if state.isHidden {
+                    Button("Show \(resolvedPresentation.displayName)") {
+                        performApplicationAction(.show, bundleID: bundleID)
+                    }
+                } else {
+                    Button("Bring \(resolvedPresentation.displayName) to Front") {
+                        performApplicationAction(.activate, bundleID: bundleID)
+                    }
+                }
+
+                if state.visibleInstanceCount > 0 {
+                    Button(
+                        state.instanceCount > 1
+                            ? "Hide All Instances"
+                            : "Hide \(resolvedPresentation.displayName)"
+                    ) {
+                        performApplicationAction(.hide, bundleID: bundleID)
+                    }
+                }
+
+                Button(
+                    state.instanceCount > 1
+                        ? "Quit All Instances"
+                        : "Quit \(resolvedPresentation.displayName)"
+                ) {
+                    performApplicationAction(.quit, bundleID: bundleID)
+                }
+            } else {
+                Button("Open") { activate() }
+                    .disabled(!resolvedPresentation.isAvailable)
+            }
+        } else {
+            Button("Open") { activate() }
+                .disabled(!resolvedPresentation.isAvailable)
+        }
+    }
+
+    @ViewBuilder
+    private var documentMenu: some View {
+        Button("Open") { activate() }
+            .disabled(!resolvedPresentation.isAvailable)
+
+        let applications = openWithApplications
+        Menu("Open With") {
+            ForEach(applications, id: \.url) { application in
+                Button {
+                    onOpenDocumentWithApplication(application.url)
+                } label: {
+                    Label {
+                        Text(application.name)
+                    } icon: {
+                        Image(nsImage: application.icon)
+                    }
+                }
+            }
+        }
+        .disabled(applications.isEmpty)
+    }
+
+    @ViewBuilder
+    private var folderMenu: some View {
+        Button("Show Contents") { activate() }
+            .disabled(!resolvedPresentation.isAvailable)
+        Button("Open in Finder") {
+            NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+        }
+        .disabled(!resolvedPresentation.isAvailable)
+
+        stackOptionsMenu
+
+        Divider()
+        Button("Copy Path") { copyPath() }
+    }
+
+    @ViewBuilder
+    private var downloadsMenu: some View {
+        Button("Show Downloads") { activate() }
+            .disabled(downloadsURL == nil)
+        Button("Open Downloads in Finder") {
+            guard let downloadsURL else { return }
+            NSWorkspace.shared.open(downloadsURL)
+        }
+        .disabled(downloadsURL == nil)
+
+        stackOptionsMenu
+    }
+
+    @ViewBuilder
+    private var recentFilesMenu: some View {
+        Button("Show Recent Files") { activate() }
+        stackOptionsMenu
+        Divider()
+        Button(
+            "Clear Recent Files…",
+            role: .destructive,
+            action: onClearRecentFilesRequested
+        )
+        .disabled(!hasRecentFiles())
+    }
+
+    @ViewBuilder
+    private var stackOptionsMenu: some View {
+        Menu("View As") {
+            presentationToggle("Automatic", value: .automatic)
+            presentationToggle("Grid", value: .grid)
+            presentationToggle("List", value: .list)
+        }
+
+        Menu("Sort By") {
+            if item.smartStackSource == .recentFiles {
+                sortOrderToggle("Recently Opened", value: .recentlyOpened)
+            }
+            sortOrderToggle("Name", value: .name)
+            sortOrderToggle("Date Modified", value: .dateModified)
+            sortOrderToggle("Kind", value: .kind)
+        }
+
+        if item.smartStackSource != .recentFiles {
+            Toggle("Show Hidden Files", isOn: showHiddenFilesBinding)
+        }
+    }
+
+    private func presentationToggle(
+        _ title: String,
+        value: FolderStackOptions.Presentation
+    ) -> some View {
+        Toggle(
+            title,
+            isOn: Binding(
+                get: { resolvedFolderOptions.presentation == value },
+                set: { selected in
+                    guard selected else { return }
+                    updateFolderPresentation(value)
+                }
+            )
+        )
+    }
+
+    private func sortOrderToggle(
+        _ title: String,
+        value: FolderStackOptions.SortOrder
+    ) -> some View {
+        Toggle(
+            title,
+            isOn: Binding(
+                get: { resolvedFolderOptions.sortOrder == value },
+                set: { selected in
+                    guard selected else { return }
+                    updateFolderSortOrder(value)
+                }
+            )
+        )
     }
 
     private var downloadsURL: URL? {
@@ -188,6 +348,75 @@ struct DockItemView: View {
             return nil
         }
         return url
+    }
+
+    private var resolvedFolderOptions: FolderStackOptions {
+        var options = item.folderOptions
+            ?? item.smartStackSource?.defaultOptions
+            ?? FolderStackOptions()
+        if item.smartStackSource == .recentFiles {
+            options.showHiddenFiles = false
+        } else if options.sortOrder == .recentlyOpened {
+            options.sortOrder = item.smartStackSource?.defaultOptions.sortOrder
+                ?? .name
+        }
+        return options
+    }
+
+    private var showHiddenFilesBinding: Binding<Bool> {
+        Binding(
+            get: { resolvedFolderOptions.showHiddenFiles },
+            set: { showHiddenFiles in
+                var options = resolvedFolderOptions
+                options.showHiddenFiles = showHiddenFiles
+                onFolderOptionsChanged(options)
+            }
+        )
+    }
+
+    private var openWithApplications: [OpenWithApplication] {
+        guard item.kind == .document,
+              resolvedPresentation.isAvailable,
+              let documentURL = item.fileURL
+        else {
+            return []
+        }
+
+        let defaultApplicationKey = NSWorkspace.shared
+            .urlForApplication(toOpen: documentURL)?
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        var seenPaths = Set<String>()
+        var applications = NSWorkspace.shared
+            .urlsForApplications(toOpen: documentURL)
+            .compactMap { url -> OpenWithApplication? in
+                let standardizedURL = url.standardizedFileURL
+                let key = standardizedURL
+                    .resolvingSymlinksInPath()
+                    .path
+                guard seenPaths.insert(key).inserted else { return nil }
+                let displayName = FileManager.default.displayName(
+                    atPath: standardizedURL.path
+                )
+                let menuName = displayName.hasSuffix(".app")
+                    ? (displayName as NSString).deletingPathExtension
+                    : displayName
+                return OpenWithApplication(
+                    url: standardizedURL,
+                    name: menuName,
+                    icon: NSWorkspace.shared.icon(forFile: standardizedURL.path),
+                    isDefault: key == defaultApplicationKey
+                )
+            }
+        applications.sort {
+            if $0.isDefault != $1.isDefault {
+                return $0.isDefault
+            }
+            return $0.name.localizedStandardCompare($1.name)
+                == .orderedAscending
+        }
+        return applications
     }
 
     private var accessibilityValue: String {
@@ -270,6 +499,35 @@ struct DockItemView: View {
         }
     }
 
+    private func performApplicationAction(
+        _ action: DockApplicationAction,
+        bundleID: String
+    ) {
+        let result = DockApplicationActionController().perform(
+            action,
+            forBundleIdentifier: bundleID
+        )
+        if !result.sentRequest || !result.allRequestsAccepted {
+            NSSound.beep()
+        }
+    }
+
+    private func updateFolderPresentation(
+        _ presentation: FolderStackOptions.Presentation
+    ) {
+        var options = resolvedFolderOptions
+        options.presentation = presentation
+        onFolderOptionsChanged(options)
+    }
+
+    private func updateFolderSortOrder(
+        _ sortOrder: FolderStackOptions.SortOrder
+    ) {
+        var options = resolvedFolderOptions
+        options.sortOrder = sortOrder
+        onFolderOptionsChanged(options)
+    }
+
     private func showInFinder() {
         guard let fileURL = item.fileURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([
@@ -282,4 +540,11 @@ struct DockItemView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(fileURL.path, forType: .string)
     }
+}
+
+private struct OpenWithApplication {
+    let url: URL
+    let name: String
+    let icon: NSImage
+    let isDefault: Bool
 }

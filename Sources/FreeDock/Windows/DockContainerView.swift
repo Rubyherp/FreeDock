@@ -9,6 +9,7 @@ enum DockRevealEdge {
 
 class DockContainerView: NSView {
     weak var dockPanel: DockPanel?
+    private(set) var isPointerInside = false
 
     private var trackingArea: NSTrackingArea?
     private let revealIndicatorLayer = CALayer()
@@ -111,10 +112,12 @@ class DockContainerView: NSView {
     }
 
     override func mouseEntered(with _: NSEvent) {
+        isPointerInside = true
         dockPanel?.cancelAutoHide()
     }
 
     override func mouseExited(with _: NSEvent) {
+        isPointerInside = false
         dockPanel?.scheduleAutoHide()
     }
 }

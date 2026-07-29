@@ -1713,7 +1713,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let resolvedKind = knownKind ?? DockItem.pinnedItem(at: url)?.kind
         guard resolvedKind == .document else { return }
+        recordRecentDocument(url)
+    }
 
+    private func openThroughFreeDock(
+        _ url: URL,
+        withApplicationAt applicationURL: URL
+    ) {
+        guard url.isFileURL,
+              applicationURL.isFileURL,
+              FileManager.default.fileExists(atPath: url.path),
+              FileManager.default.fileExists(atPath: applicationURL.path)
+        else {
+            NSSound.beep()
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.allowsRunningApplicationSubstitution = false
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: applicationURL,
+            configuration: configuration
+        ) { [weak self] _, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard error == nil else {
+                    NSSound.beep()
+                    return
+                }
+                self.recordRecentDocument(url)
+            }
+        }
+    }
+
+    private func recordRecentDocument(_ url: URL) {
         let plan = RecentFileHistoryPlanner.planRecording(
             url: url,
             displayName: FileManager.default.displayName(atPath: url.path),
@@ -2183,6 +2218,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onAddSmartStackRequested: { [weak self] source in
                 self?.addSmartStack(source, to: dockID)
+            },
+            onFolderOptionsChanged: { [weak self] itemID, options in
+                self?.updateFolderStackOptions(
+                    options,
+                    for: itemID,
+                    in: dockID
+                )
+            },
+            hasRecentFiles: { [weak self] in
+                !(self?.configManager.config.recentFiles.isEmpty ?? true)
+            },
+            onClearRecentFilesRequested: { [weak self] in
+                self?.confirmAndClearRecentFiles()
+            },
+            onOpenDocumentWithApplication: {
+                [weak self] item, applicationURL in
+                self?.openThroughFreeDock(
+                    URL(fileURLWithPath: item.path),
+                    withApplicationAt: applicationURL
+                )
             }
         )
 

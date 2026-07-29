@@ -19,6 +19,16 @@ struct DockContentView: View {
     let onQuickLaunchDismiss: @MainActor () -> Void
     let onAddItemsRequested: @MainActor () -> Void
     let onAddSmartStackRequested: @MainActor (SmartStackSource) -> Void
+    let onFolderOptionsChanged: @MainActor (
+        DockItem.ID,
+        FolderStackOptions
+    ) -> Void
+    let hasRecentFiles: @MainActor () -> Bool
+    let onClearRecentFilesRequested: @MainActor () -> Void
+    let onOpenDocumentWithApplication: @MainActor (
+        DockItem,
+        URL
+    ) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var iconSize: Double {
@@ -500,6 +510,14 @@ struct DockContentView: View {
                 onItemActivation(item, screenRect)
             },
             onRemove: { removeItem(item) },
+            onFolderOptionsChanged: { options in
+                onFolderOptionsChanged(item.id, options)
+            },
+            hasRecentFiles: hasRecentFiles,
+            onClearRecentFilesRequested: onClearRecentFilesRequested,
+            onOpenDocumentWithApplication: { applicationURL in
+                onOpenDocumentWithApplication(item, applicationURL)
+            },
             hoveredItem: $hoveredItem,
             orientation: orientation,
             showRunningIndicator: state.showRunningIndicators,

@@ -62,6 +62,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
+- **Native item controls** — Right-click to show, hide, or quit apps; choose how stacks are displayed and sorted; or open a document with another compatible app
 - **Open in one click** — Launch apps, open documents, or browse folder stacks
 - **Lock positions** — Prevent accidental dock movement
 - **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
@@ -109,14 +110,14 @@ make run
 3. Drag applications, documents, or folders from Finder into the dock
 4. Click an app or document to open it, or click a folder to browse its live contents
 5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
-6. Use a stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
+6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
-8. Right-click an item to open or reveal it, copy its path, or remove it
+8. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
 9. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-**Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the Recent Files stack.
+**Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the stack or its right-click menu.
 
 **Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
