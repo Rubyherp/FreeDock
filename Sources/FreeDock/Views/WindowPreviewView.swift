@@ -41,6 +41,7 @@ struct WindowPreviewView: View {
     let thumbnailLoadingIDs: Set<DockApplicationWindow.ID>
     let thumbnailUnavailableIDs: Set<DockApplicationWindow.ID>
     let isThumbnailCaptureEnabled: Bool
+    let keyboardSelectedWindowID: DockApplicationWindow.ID?
     let onWindowSelected: (DockApplicationWindow.ID) -> Void
     let onEnableWindowThumbnails: () -> Void
     let onHoverChanged: (Bool) -> Void
@@ -48,18 +49,41 @@ struct WindowPreviewView: View {
 
     @Environment(\.accessibilityReduceTransparency)
     private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             header
 
-            ScrollView(.horizontal, showsIndicators: windows.count > 3) {
-                HStack(spacing: 8) {
-                    ForEach(windows) { window in
-                        windowCard(window)
+            ScrollViewReader { scrollProxy in
+                ScrollView(
+                    .horizontal,
+                    showsIndicators: windows.count > 3
+                ) {
+                    HStack(spacing: 8) {
+                        ForEach(windows) { window in
+                            windowCard(window)
+                                .id(window.id)
+                        }
                     }
+                    .padding(.bottom, windows.count > 3 ? 5 : 0)
                 }
-                .padding(.bottom, windows.count > 3 ? 5 : 0)
+                .onAppear {
+                    scrollToKeyboardSelection(
+                        with: scrollProxy
+                    )
+                }
+                .onChange(of: keyboardSelectedWindowID) { _ in
+                    scrollToKeyboardSelection(
+                        with: scrollProxy
+                    )
+                }
+                .onChange(of: windows.map(\.id)) { _ in
+                    scrollToKeyboardSelection(
+                        with: scrollProxy
+                    )
+                }
             }
         }
         .padding(10)
@@ -231,12 +255,39 @@ struct WindowPreviewView: View {
             .contentShape(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
+            .background {
+                RoundedRectangle(
+                    cornerRadius: 11,
+                    style: .continuous
+                )
+                .fill(
+                    isKeyboardSelected(window)
+                        ? Color.primary.opacity(0.09)
+                        : .clear
+                )
+            }
+            .overlay {
+                RoundedRectangle(
+                    cornerRadius: 11,
+                    style: .continuous
+                )
+                .strokeBorder(
+                    isKeyboardSelected(window)
+                        ? Color.primary.opacity(0.30)
+                        : .clear,
+                    lineWidth: 1
+                )
+            }
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .help(windowHelp(window))
         .accessibilityLabel(window.title)
         .accessibilityValue(windowAccessibilityValue(window))
         .accessibilityHint(windowAccessibilityHint(window))
+        .accessibilityAddTraits(
+            isKeyboardSelected(window) ? .isSelected : []
+        )
     }
 
     private func statusBadge(
@@ -384,7 +435,12 @@ struct WindowPreviewView: View {
     private func windowAccessibilityHint(
         _ window: DockApplicationWindow
     ) -> String {
-        window.canFocusExactly
+        if isKeyboardSelected(window) {
+            return window.canFocusExactly
+                ? "Press Return to bring this window to front."
+                : "Press Return to activate the application."
+        }
+        return window.canFocusExactly
             ? "Brings this window to front."
             : "Activates the application; exact window switching is unavailable."
     }
@@ -397,6 +453,9 @@ struct WindowPreviewView: View {
             values.append("focused")
         } else if window.isMain {
             values.append("main")
+        }
+        if isKeyboardSelected(window) {
+            values.append("keyboard selected")
         }
         if window.isMinimized {
             values.append("minimized")
@@ -424,6 +483,37 @@ struct WindowPreviewView: View {
             values.append("application activation only")
         }
         return values.joined(separator: ", ")
+    }
+
+    private func isKeyboardSelected(
+        _ window: DockApplicationWindow
+    ) -> Bool {
+        keyboardSelectedWindowID == window.id
+    }
+
+    private func scrollToKeyboardSelection(
+        with proxy: ScrollViewProxy
+    ) {
+        guard let keyboardSelectedWindowID,
+              windows.contains(where: {
+                  $0.id == keyboardSelectedWindowID
+              })
+        else {
+            return
+        }
+        if reduceMotion {
+            proxy.scrollTo(
+                keyboardSelectedWindowID,
+                anchor: .center
+            )
+        } else {
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(
+                    keyboardSelectedWindowID,
+                    anchor: .center
+                )
+            }
+        }
     }
 
     @ViewBuilder

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 enum WindowPreviewPanelQueryDecision: Equatable, Sendable {
@@ -54,6 +55,48 @@ enum WindowPreviewPanelEventPolicy {
     }
 }
 
+enum WindowPreviewKeyboardAction: Equatable, Sendable {
+    case previous
+    case next
+    case activate
+    case close
+}
+
+enum WindowPreviewKeyboardEventPolicy {
+    static func action(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> WindowPreviewKeyboardAction? {
+        if keyCode == UInt16(kVK_Escape) {
+            return .close
+        }
+
+        let disallowedModifiers:
+            NSEvent.ModifierFlags = [.command, .control, .option]
+        guard modifierFlags
+            .intersection(disallowedModifiers)
+            .isEmpty
+        else {
+            return nil
+        }
+
+        switch Int(keyCode) {
+        case kVK_LeftArrow, kVK_UpArrow:
+            return .previous
+        case kVK_RightArrow, kVK_DownArrow:
+            return .next
+        case kVK_Tab:
+            return modifierFlags.contains(.shift)
+                ? .previous
+                : .next
+        case kVK_Return, kVK_ANSI_KeypadEnter, kVK_Space:
+            return .activate
+        default:
+            return nil
+        }
+    }
+}
+
 @MainActor
 final class WindowPreviewPanelController {
     private struct Target {
@@ -87,6 +130,8 @@ final class WindowPreviewPanelController {
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
     private var isExplicitPresentation = false
+    private var keyboardSelection =
+        WindowPreviewKeyboardSelection()
 
     init(
         applicationWindows: DockApplicationWindowController
@@ -299,6 +344,7 @@ final class WindowPreviewPanelController {
         thumbnailLoadingIDs = []
         thumbnailUnavailableIDs = []
         isExplicitPresentation = false
+        keyboardSelection = WindowPreviewKeyboardSelection()
         if resetNativeController {
             applicationWindows.reset()
         }
@@ -356,6 +402,11 @@ final class WindowPreviewPanelController {
             ) {
             case .accept:
                 self.windows = query.windows
+                if self.isExplicitPresentation {
+                    self.keyboardSelection.update(
+                        windows: query.windows
+                    )
+                }
                 let shouldPresent =
                     self.hoverState.completeDiscovery(
                         sessionID: sessionID,
@@ -449,6 +500,8 @@ final class WindowPreviewPanelController {
                 thumbnailUnavailableIDs,
             isThumbnailCaptureEnabled:
                 applicationWindows.isScreenCaptureTrusted,
+            keyboardSelectedWindowID:
+                visibleKeyboardSelectionID,
             onWindowSelected: { [weak self] windowID in
                 self?.selectWindow(windowID)
             },
@@ -656,6 +709,72 @@ final class WindowPreviewPanelController {
         }
     }
 
+    private var visibleKeyboardSelectionID:
+        DockApplicationWindow.ID?
+    {
+        guard isExplicitPresentation,
+              keyboardSelection.showsFocusIndicator
+        else {
+            return nil
+        }
+        return keyboardSelection.selectedWindowID
+    }
+
+    private func handleKeyboardEvent(
+        _ event: NSEvent,
+        monitoredSessionID: UUID?
+    ) -> Bool {
+        guard isExplicitPresentation,
+              panel.isVisible,
+              panel.isKeyWindow,
+              event.window === panel,
+              let monitoredSessionID,
+              hoverState.session?.id == monitoredSessionID,
+              let action =
+                WindowPreviewKeyboardEventPolicy.action(
+                    keyCode: event.keyCode,
+                    modifierFlags: event.modifierFlags
+                )
+        else {
+            return false
+        }
+
+        switch action {
+        case .previous:
+            keyboardSelection.selectPrevious(in: windows)
+            refreshKeyboardSelection()
+        case .next:
+            keyboardSelection.selectNext(in: windows)
+            refreshKeyboardSelection()
+        case .activate:
+            guard let selectedID =
+                    keyboardSelection.returnTargetID,
+                  windows.contains(where: {
+                      $0.id == selectedID
+                  })
+            else {
+                NSSound.beep()
+                return true
+            }
+            selectWindow(selectedID)
+        case .close:
+            close(resetNativeController: false)
+        }
+        return true
+    }
+
+    private func refreshKeyboardSelection() {
+        guard let target,
+              let sessionID = hoverState.session?.id
+        else {
+            return
+        }
+        configurePanelContent(
+            target: target,
+            sessionID: sessionID
+        )
+    }
+
     private func scheduleRefresh() {
         refreshTask?.cancel()
         guard panel.isVisible,
@@ -701,6 +820,11 @@ final class WindowPreviewPanelController {
                 return
             }
 
+            if self.isExplicitPresentation {
+                self.keyboardSelection.update(
+                    windows: query.windows
+                )
+            }
             if self.windows != query.windows {
                 let previousCaptureIDs = Dictionary(
                     uniqueKeysWithValues: self.windows.map {
@@ -744,6 +868,7 @@ final class WindowPreviewPanelController {
             return
         }
 
+        let monitoredSessionID = hoverState.session?.id
         localEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [
                 .keyDown,
@@ -752,9 +877,11 @@ final class WindowPreviewPanelController {
             ]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, event.keyCode == 53 {
-                self.close(resetNativeController: false)
-                return nil
+            if event.type == .keyDown {
+                return self.handleKeyboardEvent(
+                    event,
+                    monitoredSessionID: monitoredSessionID
+                ) ? nil : event
             }
             guard event.type == .leftMouseDown
                     || event.type == .rightMouseDown,
@@ -772,7 +899,6 @@ final class WindowPreviewPanelController {
             return event
         }
 
-        let monitoredSessionID = hoverState.session?.id
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in

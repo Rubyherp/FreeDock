@@ -129,6 +129,8 @@ make run
 
 **Window switching privacy:** Discovery and focus happen locally using macOS Accessibility and WindowServer APIs. Optional window thumbnails require Screen Recording access, are kept in a small memory-only cache, and are never written to disk. Without that permission, the same cards remain available with app icons and window titles. A thumbnail shows each window’s currently selected tab; inactive tabs are not separate macOS windows and cannot be captured generically without switching them. Like every FreeDock feature, window switching remains free and open source.
 
+**Window switcher keyboard controls:** Right-click a running app and choose **Show Windows…**, then use the arrow keys, Tab, or Shift-Tab to move between cards. Press Return, keypad Enter, or Space to activate the selected window, or Escape to close the switcher.
+
 **Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌘⇧Space` for Quick Launch. Type to narrow the pinned items in the dock nearest your pointer, use the arrow keys or Tab and Shift-Tab to move the selection, press Return to open it, or Escape to close. Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
