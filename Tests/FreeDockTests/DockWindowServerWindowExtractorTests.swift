@@ -27,11 +27,11 @@ struct DockWindowServerWindowExtractorTests {
             matching: [42]
         )
 
-        #expect(windows.map(\.windowID) == [11, 12])
-        #expect(windows.map(\.sourceOrder) == [1, 2])
+        #expect(windows.map(\.windowID) == [11, 12, 13])
+        #expect(windows.map(\.sourceOrder) == [1, 2, 3])
     }
 
-    @Test("Offscreen shareable windows retain their metadata")
+    @Test("Offscreen windows without sharing metadata remain discoverable")
     func offscreenWindowIsRetained() throws {
         let frame = CGRect(
             x: -1_200,
@@ -46,6 +46,7 @@ struct DockWindowServerWindowExtractorTests {
                         id: 20,
                         title: "Other Desktop",
                         frame: frame,
+                        sharingState: nil,
                         isOnScreen: false
                     )
                 ],
@@ -66,6 +67,10 @@ struct DockWindowServerWindowExtractorTests {
         malformed.removeValue(
             forKey: kCGWindowBounds as String
         )
+        var malformedSharingState = rawWindow(id: 36)
+        malformedSharingState[
+            kCGWindowSharingState as String
+        ] = "invalid"
 
         let windows = DockWindowServerWindowExtractor.windows(
             from: [
@@ -83,6 +88,7 @@ struct DockWindowServerWindowExtractorTests {
                 ),
                 rawWindow(id: 34, alpha: 0.01),
                 malformed,
+                malformedSharingState,
             ],
             matching: [42]
         )

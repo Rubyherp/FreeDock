@@ -321,6 +321,14 @@ enum DockApplicationWindowPlanner {
         ) {
             return match
         }
+        if candidate.isFocused || candidate.isMain {
+            let onScreenFrameMatches = frameMatches.filter(
+                \.isOnScreen
+            )
+            if onScreenFrameMatches.count == 1 {
+                return onScreenFrameMatches[0]
+            }
+        }
         if frameMatches.count == 1 {
             return frameMatches[0]
         }
@@ -334,12 +342,6 @@ enum DockApplicationWindowPlanner {
             }
         }
 
-        let sameProcessCandidateCount = allCandidates.filter {
-            $0.processIdentifier == candidate.processIdentifier
-        }.count
-        if windows.count == 1, sameProcessCandidateCount == 1 {
-            return windows[0]
-        }
         return nil
     }
 
@@ -379,10 +381,7 @@ enum DockApplicationWindowPlanner {
         }) {
             return index
         }
-        return sameProcessIndices.first {
-            candidates[$0].frame == nil
-                && normalizedTitle(candidates[$0].title) == nil
-        }
+        return nil
     }
 
     private static func frameDistance(

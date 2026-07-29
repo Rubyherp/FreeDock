@@ -243,6 +243,179 @@ struct DockApplicationWindowTests {
         )
     }
 
+    @Test("Explicit one-to-one frame and title evidence still matches")
+    func explicitOneToOneEvidenceMatches() {
+        let sharedFrame = CGRect(
+            x: 20,
+            y: 30,
+            width: 900,
+            height: 700
+        )
+        let frameCandidate = candidate(
+            title: nil,
+            frame: sharedFrame
+        )
+        let titleCandidate = candidate(
+            title: "Project",
+            frame: nil
+        )
+
+        #expect(
+            DockApplicationWindowPlanner.captureMatches(
+                candidates: [frameCandidate],
+                captureWindows: [
+                    serverWindow(
+                        id: 9,
+                        title: nil,
+                        frame: sharedFrame
+                    ),
+                ]
+            ).map(\.captureWindowID) == [9]
+        )
+        #expect(
+            DockApplicationWindowPlanner.captureMatches(
+                candidates: [titleCandidate],
+                captureWindows: [
+                    serverWindow(
+                        id: 10,
+                        title: "Project",
+                        frame: CGRect(
+                            x: 1_200,
+                            y: 80,
+                            width: 640,
+                            height: 480
+                        )
+                    ),
+                ]
+            ).map(\.captureWindowID) == [10]
+        )
+    }
+
+    @Test("A nonmatching offscreen capture remains independently discoverable")
+    func nonmatchingOffscreenCaptureRemains() {
+        let current = candidate(
+            title: "Current Window",
+            frame: CGRect(
+                x: 20,
+                y: 30,
+                width: 900,
+                height: 700
+            ),
+            isFocused: true
+        )
+        let otherDesktop = serverWindow(
+            id: 11,
+            title: "Other Desktop",
+            frame: CGRect(
+                x: -1_200,
+                y: 80,
+                width: 640,
+                height: 480
+            ),
+            isOnScreen: false
+        )
+
+        #expect(
+            DockApplicationWindowPlanner.captureMatches(
+                candidates: [current],
+                captureWindows: [otherDesktop]
+            ).isEmpty
+        )
+        #expect(
+            DockApplicationWindowPlanner
+                .unrepresentedCaptureWindows(
+                    candidates: [current],
+                    captureWindows: [otherDesktop]
+                )
+                .map(\.windowID) == [11]
+        )
+    }
+
+    @Test("Blank metadata is not representation evidence")
+    func blankMetadataDoesNotDeduplicate() {
+        let blankCandidate = candidate(
+            title: nil,
+            frame: nil
+        )
+        let blankCapture = serverWindow(
+            id: 12,
+            title: nil,
+            isOnScreen: false
+        )
+
+        #expect(
+            DockApplicationWindowPlanner.captureMatches(
+                candidates: [blankCandidate],
+                captureWindows: [blankCapture]
+            ).isEmpty
+        )
+        #expect(
+            DockApplicationWindowPlanner
+                .unrepresentedCaptureWindows(
+                    candidates: [blankCandidate],
+                    captureWindows: [blankCapture]
+                )
+                .map(\.windowID) == [12]
+        )
+    }
+
+    @Test("Focused and main AX windows consume the on-screen equal frame")
+    func currentWindowWinsEqualFrameAmbiguity() {
+        let sharedFrame = CGRect(
+            x: 0,
+            y: 0,
+            width: 1_440,
+            height: 900
+        )
+        let currentCapture = serverWindow(
+            id: 13,
+            title: nil,
+            frame: sharedFrame,
+            isOnScreen: true
+        )
+        let otherDesktopCapture = serverWindow(
+            id: 14,
+            title: nil,
+            frame: sharedFrame,
+            isOnScreen: false
+        )
+        let candidates = [
+            candidate(
+                title: nil,
+                frame: sharedFrame,
+                isFocused: true
+            ),
+            candidate(
+                title: nil,
+                frame: sharedFrame,
+                isMain: true
+            ),
+        ]
+        let captureOrders = [
+            [otherDesktopCapture, currentCapture],
+            [currentCapture, otherDesktopCapture],
+        ]
+
+        for candidate in candidates {
+            for captures in captureOrders {
+                #expect(
+                    DockApplicationWindowPlanner.captureMatches(
+                        candidates: [candidate],
+                        captureWindows: captures
+                    ).map(\.captureWindowID) == [13]
+                )
+                #expect(
+                    DockApplicationWindowPlanner
+                        .unrepresentedCaptureWindows(
+                            candidates: [candidate],
+                            captureWindows: captures
+                        )
+                        .map(\.windowID) == [14]
+                )
+            }
+        }
+    }
+
     @Test("Duplicate titles are disambiguated by frame")
     func duplicateTitleCaptureMatching() {
         let firstID = UUID()
@@ -569,14 +742,15 @@ struct DockApplicationWindowTests {
             y: 0,
             width: 800,
             height: 600
-        )
+        ),
+        isOnScreen: Bool = true
     ) -> DockWindowServerWindow {
         DockWindowServerWindow(
             windowID: id,
             processIdentifier: processIdentifier,
             title: title,
             frame: frame,
-            isOnScreen: true,
+            isOnScreen: isOnScreen,
             sourceOrder: Int(id)
         )
     }

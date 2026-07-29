@@ -1,6 +1,22 @@
 import Cocoa
 import SwiftUI
 
+enum DockApplicationHoverTooltip {
+    static func text(
+        displayName: String,
+        isWindowSwitchingEnabled: Bool,
+        isThumbnailCaptureEnabled _: Bool
+    ) -> String {
+        guard isWindowSwitchingEnabled else {
+            return "Right-click to enable window switching"
+        }
+        // Thumbnail permission affects only card artwork. Once switching is
+        // enabled, use the normal Dock-style app label and let the preview
+        // panel explain its own thumbnail state.
+        return displayName
+    }
+}
+
 struct DockItemView: View {
     let item: DockItem
     let iconSize: Double
@@ -556,12 +572,18 @@ struct DockItemView: View {
             return resolvedPresentation.displayName
         }
         if !isWindowPreviewAccessibilityTrusted() {
-            return "Right-click to enable window switching"
+            return DockApplicationHoverTooltip.text(
+                displayName: resolvedPresentation.displayName,
+                isWindowSwitchingEnabled: false,
+                isThumbnailCaptureEnabled: false
+            )
         }
-        if !isWindowPreviewScreenCaptureTrusted() {
-            return "Hover for windows · right-click for thumbnails"
-        }
-        return resolvedPresentation.displayName
+        return DockApplicationHoverTooltip.text(
+            displayName: resolvedPresentation.displayName,
+            isWindowSwitchingEnabled: true,
+            isThumbnailCaptureEnabled:
+                isWindowPreviewScreenCaptureTrusted()
+        )
     }
 
     private func refreshPresentation() {

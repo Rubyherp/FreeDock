@@ -250,7 +250,7 @@ enum DockWindowServerWindowExtractor {
                     values[kCGWindowLayer as String]
                     as? NSNumber,
                 layerNumber.intValue == 0,
-                isShareable(
+                hasDiscoverableSharingState(
                     values[kCGWindowSharingState as String]
                 ),
                 let frame = windowFrame(
@@ -281,7 +281,15 @@ enum DockWindowServerWindowExtractor {
         }
     }
 
-    private static func isShareable(_ value: Any?) -> Bool {
+    private static func hasDiscoverableSharingState(
+        _ value: Any?
+    ) -> Bool {
+        // Discovery and pixel capture have separate permission paths. Only
+        // an explicit `.none` is authoritative; a missing value must not hide
+        // an otherwise valid metadata-only window card.
+        guard let value else {
+            return true
+        }
         guard let sharingState =
             (value as? NSNumber)?.uint32Value
         else {
