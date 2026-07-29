@@ -22,12 +22,17 @@ class DockPanel: NSPanel, NSWindowDelegate {
     weak var dockDelegate: DockPanelDelegate?
     private weak var hostingView: NSView?
     private var hideWorkItem: DispatchWorkItem?
+    private var revealCompletionWorkItem: DispatchWorkItem?
     private var autoHideEdge: DockScreenEdge?
     private var shownFrame: NSRect?
     private var isAutoHidden = false
+    private var isAutoHideRevealInProgress = false
     private var isUserMovingWindow = false
     private var moveCompletionWorkItem: DispatchWorkItem?
     private var transientInteractionTokens = Set<UUID>()
+    private var resizeInteractionTokens = Set<UUID>()
+    private var resizeReferenceFrame: NSRect?
+    private var resizeReferenceEdge: DockScreenEdge?
 
     private let edgeTolerance: CGFloat = 2
     private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
@@ -81,13 +86,13 @@ class DockPanel: NSPanel, NSWindowDelegate {
     }
 
     func windowWillMove(_: Notification) {
-        guard !isAutoHidden else { return }
+        guard !isAutoHidden, resizeInteractionTokens.isEmpty else { return }
         isUserMovingWindow = true
         hideWorkItem?.cancel()
     }
 
     func windowDidMove(_: Notification) {
-        guard isUserMovingWindow else { return }
+        guard isUserMovingWindow, resizeInteractionTokens.isEmpty else { return }
         moveCompletionWorkItem?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
@@ -97,6 +102,11 @@ class DockPanel: NSPanel, NSWindowDelegate {
         }
         moveCompletionWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    func setPositionLocked(_ locked: Bool) {
+        isMovableByWindowBackground =
+            !locked && resizeInteractionTokens.isEmpty
     }
 
     func setContentView<V: View>(_ view: V) {
@@ -125,35 +135,29 @@ class DockPanel: NSPanel, NSWindowDelegate {
               let hosting = hostingView
         else { return }
 
-        let originalFrame = frame
-        let preservedEdge = autoHideEdge
+        let isInteractiveResize = !resizeInteractionTokens.isEmpty
+        let originalFrame = isInteractiveResize
+            ? (resizeReferenceFrame ?? frame)
+            : frame
+        let preservedEdge = isInteractiveResize
+            ? resizeReferenceEdge
+            : resizeAnchorEdge(for: originalFrame)
         hosting.invalidateIntrinsicContentSize()
         let intrinsicSize = hosting.fittingSize
         let enforcedSize = enforcedSize(for: intrinsicSize)
-        setContentSize(enforcedSize)
-
-        var anchoredFrame = frame
-        anchoredFrame.size = enforcedSize
-
-        if preservedEdge == .right {
-            anchoredFrame.origin.x = originalFrame.maxX - enforcedSize.width
-        } else {
-            anchoredFrame.origin.x = originalFrame.minX
-        }
-
-        if dockOrientation == .horizontal {
-            anchoredFrame.origin.y = preservedEdge == .top
-                ? originalFrame.maxY - enforcedSize.height
-                : originalFrame.minY
-        } else {
-            anchoredFrame.origin.y = preservedEdge == .bottom
-                ? originalFrame.minY
-                : originalFrame.maxY - enforcedSize.height
-        }
+        let anchoredFrame = DockPanelResizeGeometry.anchoredFrame(
+            from: originalFrame,
+            size: enforcedSize,
+            orientation: dockOrientation,
+            dockedEdge: preservedEdge
+        )
 
         setFrame(anchoredFrame, display: true)
         container.setFrameSize(enforcedSize)
         hosting.frame = container.bounds
+        if shownFrame != nil {
+            shownFrame = anchoredFrame
+        }
     }
 
     /// Prevent docks from landing off-screen (e.g., after monitor disconnect)
@@ -202,6 +206,9 @@ class DockPanel: NSPanel, NSWindowDelegate {
             guard let self else { return }
             guard !self.isAutoHidden else { return }
 
+            self.revealCompletionWorkItem?.cancel()
+            self.revealCompletionWorkItem = nil
+            self.isAutoHideRevealInProgress = false
             self.isAutoHidden = true
             self.dockContainer?.showRevealIndicator(at: self.revealEdge(for: edge))
             self.hostingView?.alphaValue = 0
@@ -228,6 +235,8 @@ class DockPanel: NSPanel, NSWindowDelegate {
         guard isAutoHidden, let restingFrame = shownFrame else { return }
 
         isAutoHidden = false
+        isAutoHideRevealInProgress = true
+        revealCompletionWorkItem?.cancel()
         hostingView?.isHidden = false
         hostingView?.alphaValue = 0
         NSAnimationContext.runAnimationGroup { context in
@@ -236,14 +245,26 @@ class DockPanel: NSPanel, NSWindowDelegate {
             self.hostingView?.animator().alphaValue = 1
             self.animator().setFrame(restingFrame, display: true)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.dockContainer?.hideRevealIndicator()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.isAutoHideRevealInProgress = false
+            self.revealCompletionWorkItem = nil
+            self.dockContainer?.hideRevealIndicator()
         }
+        revealCompletionWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     func revealImmediately() {
         hideWorkItem?.cancel()
-        guard isAutoHidden, let restingFrame = shownFrame else { return }
+        guard isAutoHidden || isAutoHideRevealInProgress,
+              let restingFrame = shownFrame
+        else { return }
+
+        revealCompletionWorkItem?.cancel()
+        revealCompletionWorkItem = nil
+        isAutoHideRevealInProgress = false
         isAutoHidden = false
         hostingView?.isHidden = false
         hostingView?.alphaValue = 1
@@ -271,12 +292,56 @@ class DockPanel: NSPanel, NSWindowDelegate {
         scheduleAutoHide()
     }
 
+    /// Holds the panel steady for the duration of an interactive resize.
+    ///
+    /// The token makes cleanup safe when AppKit interrupts a drag because the
+    /// view is removed, the mouse-up arrives elsewhere, or the panel closes.
+    func beginResizeInteraction() -> UUID {
+        let token = UUID()
+        let isFirstResizeInteraction = resizeInteractionTokens.isEmpty
+        resizeInteractionTokens.insert(token)
+        transientInteractionTokens.insert(token)
+
+        guard isFirstResizeInteraction else { return token }
+
+        moveCompletionWorkItem?.cancel()
+        moveCompletionWorkItem = nil
+        isUserMovingWindow = false
+        hideWorkItem?.cancel()
+        revealImmediately()
+        isMovableByWindowBackground = false
+        resizeReferenceFrame = frame
+        resizeReferenceEdge = resizeAnchorEdge(for: frame)
+        return token
+    }
+
+    func endResizeInteraction(_ token: UUID) {
+        guard resizeInteractionTokens.remove(token) != nil else { return }
+        transientInteractionTokens.remove(token)
+        guard resizeInteractionTokens.isEmpty else { return }
+
+        resizeReferenceFrame = nil
+        resizeReferenceEdge = nil
+        if let dockDelegate {
+            setPositionLocked(dockDelegate.lockPositions)
+        }
+        updateAutoHideEdge()
+        if transientInteractionTokens.isEmpty {
+            scheduleAutoHide()
+        }
+    }
+
     func tearDown() {
         hideWorkItem?.cancel()
+        revealCompletionWorkItem?.cancel()
         moveCompletionWorkItem?.cancel()
         transientInteractionTokens.removeAll()
+        resizeInteractionTokens.removeAll()
+        resizeReferenceFrame = nil
+        resizeReferenceEdge = nil
         isUserMovingWindow = false
         isAutoHidden = false
+        isAutoHideRevealInProgress = false
         dockContainer?.hideRevealIndicator()
         hostingView?.isHidden = false
         hostingView?.alphaValue = 1
@@ -305,6 +370,19 @@ class DockPanel: NSPanel, NSWindowDelegate {
         return NSScreen.screens.first(where: { $0.frame.contains(center) })
             ?? screen
             ?? NSScreen.main
+    }
+
+    private func resizeAnchorEdge(for frame: NSRect) -> DockScreenEdge? {
+        if let autoHideEdge {
+            return autoHideEdge
+        }
+        guard let visibleFrame = activeScreen?.visibleFrame else { return nil }
+        return DockPanelResizeGeometry.dockedEdge(
+            of: frame,
+            in: visibleFrame,
+            orientation: dockOrientation,
+            tolerance: edgeTolerance
+        )
     }
 
     private func hiddenFrame(

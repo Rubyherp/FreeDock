@@ -16,6 +16,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesWindowController: PreferencesWindowController?
     private var menuRefreshWorkItem: DispatchWorkItem?
     private var dockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
+    private var liveDockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
+    private var dockResizeFinishWorkItems: [UUID: DispatchWorkItem] = [:]
+    private var activeDockResizeIDs: Set<UUID> = []
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
     private var screenParametersWorkItem: DispatchWorkItem?
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
@@ -1020,8 +1023,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let id = sender.representedObject as? UUID else { return }
         if let panel = dockPanels[id] {
             closeFolderStack(for: id)
-            dockResizeWorkItems[id]?.cancel()
-            dockResizeWorkItems.removeValue(forKey: id)
+            cancelDockResizeWork(for: id)
             pendingAutoHideUpdates.removeValue(forKey: id)
             panel.tearDown()
             dockPanels.removeValue(forKey: id)
@@ -1056,8 +1058,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func performDeleteDock(_ id: UUID) {
         closeFolderStack(for: id)
-        dockResizeWorkItems[id]?.cancel()
-        dockResizeWorkItems.removeValue(forKey: id)
+        cancelDockResizeWork(for: id)
         pendingAutoHideUpdates.removeValue(forKey: id)
         dockPanels[id]?.tearDown()
         dockPanels.removeValue(forKey: id)
@@ -1071,7 +1072,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLockPositions() {
         _lockPositions.toggle()
         for panel in dockPanels.values {
-            panel.isMovableByWindowBackground = !_lockPositions
+            panel.setPositionLocked(_lockPositions)
         }
         rebuildMenu()
     }
@@ -1733,6 +1734,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: work)
     }
 
+    private func cancelDockResizeWork(for dockID: UUID) {
+        dockResizeWorkItems[dockID]?.cancel()
+        dockResizeWorkItems.removeValue(forKey: dockID)
+        liveDockResizeWorkItems[dockID]?.cancel()
+        liveDockResizeWorkItems.removeValue(forKey: dockID)
+        dockResizeFinishWorkItems[dockID]?.cancel()
+        dockResizeFinishWorkItems.removeValue(forKey: dockID)
+        activeDockResizeIDs.remove(dockID)
+    }
+
     private func updateAutoHideRuntime(
         for dockID: UUID,
         enabled: Bool,
@@ -1773,8 +1784,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let panel = dockPanels[dockID] else { return }
 
         closeFolderStack(for: dockID)
-        dockResizeWorkItems[dockID]?.cancel()
-        dockResizeWorkItems.removeValue(forKey: dockID)
+        cancelDockResizeWork(for: dockID)
         pendingAutoHideUpdates.removeValue(forKey: dockID)
         _ = persistPanelPlacement(panel, userInitiated: false)
         panel.revealImmediately()
@@ -1829,7 +1839,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.autoHideWhenDocked = config.autoHideWhenDocked
         panel.setContentView(content)
         panel.dockDelegate = self
-        panel.isMovableByWindowBackground = !_lockPositions
+        panel.setPositionLocked(_lockPositions)
         dockPanels[config.id] = panel
 
         if let resolution = displayResolution(
@@ -1881,6 +1891,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             work.cancel()
         }
         dockResizeWorkItems.removeAll()
+        for work in liveDockResizeWorkItems.values {
+            work.cancel()
+        }
+        liveDockResizeWorkItems.removeAll()
+        for work in dockResizeFinishWorkItems.values {
+            work.cancel()
+        }
+        dockResizeFinishWorkItems.removeAll()
+        activeDockResizeIDs.removeAll()
         pendingAutoHideUpdates.removeAll()
         for panel in dockPanels.values {
             panel.tearDown()
@@ -1933,12 +1952,115 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidResize(_ panel: DockPanel, proposedIconSize: Double) {
-        closeFolderStack(for: panel.dockID)
-        applyDockPreference(.iconSize(proposedIconSize), to: panel.dockID)
+        let dockID = panel.dockID
+        guard configManager.config.docks.contains(where: {
+            $0.id == dockID
+        }),
+        let state = dockStates[dockID]
+        else {
+            return
+        }
+
+        if activeDockResizeIDs.insert(dockID).inserted {
+            closeFolderStack(for: dockID)
+            panel.revealImmediately()
+
+            // A handle drag owns geometry until mouse-up. Letting a delayed
+            // Preferences resize fire in the middle of it makes the panel jump
+            // and can persist a transient origin.
+            dockResizeWorkItems[dockID]?.cancel()
+            dockResizeWorkItems.removeValue(forKey: dockID)
+            dockResizeFinishWorkItems[dockID]?.cancel()
+            dockResizeFinishWorkItems.removeValue(forKey: dockID)
+        }
+
+        let liveIconSize = DockConfig.clamp(
+            proposedIconSize,
+            to: DockConfig.iconSizeRange
+        )
+        guard state.iconSize != liveIconSize else { return }
+
+        // Only publish the property which drives the live layout. The normal
+        // preference pipeline republishes every DockState property, refreshes
+        // Preferences, schedules persistence, and starts a competing 35 ms
+        // resize for every pointer event.
+        state.iconSize = liveIconSize
+        scheduleLiveDockResize(panel)
     }
 
     func dockPanelDidFinishResize(_ panel: DockPanel) {
-        closeFolderStack(for: panel.dockID)
+        let dockID = panel.dockID
+        let wasLiveResize = activeDockResizeIDs.remove(dockID) != nil
+        liveDockResizeWorkItems[dockID]?.cancel()
+        liveDockResizeWorkItems.removeValue(forKey: dockID)
+
+        guard wasLiveResize else {
+            finishDockResize(panel)
+            return
+        }
+
+        commitLiveDockResizeIconSize(for: dockID)
+
+        // Give SwiftUI one display tick to commit the final icon size before
+        // measuring the hosting view, then persist exactly once.
+        let work = DispatchWorkItem { [weak self, weak panel] in
+            guard let self, let panel,
+                  !self.activeDockResizeIDs.contains(dockID)
+            else {
+                return
+            }
+            self.dockResizeFinishWorkItems.removeValue(forKey: dockID)
+            panel.resizeToFitContent()
+            self.finishDockResize(panel)
+        }
+        dockResizeFinishWorkItems[dockID] = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + (1.0 / 60.0),
+            execute: work
+        )
+    }
+
+    private func commitLiveDockResizeIconSize(for dockID: UUID) {
+        guard let index = configManager.config.docks.firstIndex(where: {
+            $0.id == dockID
+        }),
+        let state = dockStates[dockID]
+        else {
+            return
+        }
+
+        var updated = configManager.config.docks[index]
+        updated.apply(.iconSize(
+            DockResizeGestureMath.committedIconSize(state.iconSize)
+        ))
+        configManager.config.docks[index] = updated
+        state.iconSize = updated.iconSize
+    }
+
+    private func scheduleLiveDockResize(_ panel: DockPanel) {
+        let dockID = panel.dockID
+        guard liveDockResizeWorkItems[dockID] == nil else { return }
+
+        let work = DispatchWorkItem { [weak self, weak panel] in
+            guard let self else { return }
+            self.liveDockResizeWorkItems.removeValue(forKey: dockID)
+            guard self.activeDockResizeIDs.contains(dockID),
+                  let panel
+            else {
+                return
+            }
+            panel.resizeToFitContent()
+        }
+        liveDockResizeWorkItems[dockID] = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + (1.0 / 60.0),
+            execute: work
+        )
+    }
+
+    private func finishDockResize(_ panel: DockPanel) {
+        let dockID = panel.dockID
+        closeFolderStack(for: dockID)
         let snapped = snapFrame(
             panel.frame,
             on: effectiveScreen(for: panel)
@@ -1951,5 +2073,15 @@ extension AppDelegate: DockPanelDelegate {
         configManager.save()
         refreshPreferencesSnapshot()
         scheduleMenuRefresh()
+
+        if let pending = pendingAutoHideUpdates.removeValue(forKey: dockID) {
+            updateAutoHideRuntime(
+                for: dockID,
+                enabled: pending.enabled,
+                orientation: pending.orientation
+            )
+        } else if panel.autoHideWhenDocked {
+            panel.scheduleAutoHide()
+        }
     }
 }

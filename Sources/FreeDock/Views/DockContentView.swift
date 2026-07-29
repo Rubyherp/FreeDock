@@ -29,6 +29,10 @@ struct DockContentView: View {
         displayedItems ?? items
     }
 
+    private var resizableItemCount: Int {
+        DockResizeGestureMath.resizableItemCount(in: currentItems)
+    }
+
     private var surfaceCornerRadius: CGFloat {
         CGFloat(state.cornerRadius)
     }
@@ -94,11 +98,14 @@ struct DockContentView: View {
                 .background(dockSurface)
                 .overlay(dropZoneHighlight)
                 .overlay(alignment: .trailing) {
-                DockResizeHandleRepresentable(
-                    panel: panel,
-                    orientation: orientation
-                )
-                    .frame(width: 18)
+                    if resizableItemCount > 0 {
+                        DockResizeHandleRepresentable(
+                            panel: panel,
+                            orientation: orientation,
+                            resizableItemCount: resizableItemCount
+                        )
+                        .frame(width: 18)
+                    }
                 }
                 .padding(.top, magnificationHeadroom)
         } else {
@@ -108,11 +115,14 @@ struct DockContentView: View {
                 .background(dockSurface)
                 .overlay(dropZoneHighlight)
                 .overlay(alignment: .bottom) {
-                DockResizeHandleRepresentable(
-                    panel: panel,
-                    orientation: orientation
-                )
-                    .frame(height: 18)
+                    if resizableItemCount > 0 {
+                        DockResizeHandleRepresentable(
+                            panel: panel,
+                            orientation: orientation,
+                            resizableItemCount: resizableItemCount
+                        )
+                        .frame(height: 18)
+                    }
                 }
                 .padding(.horizontal, magnificationHeadroom * 0.52)
         }
