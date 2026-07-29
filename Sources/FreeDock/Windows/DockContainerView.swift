@@ -99,6 +99,7 @@ class DockContainerView: NSView {
             options: [
                 .mouseEnteredAndExited,
                 .activeAlways,
+                .enabledDuringMouseDrag,
                 .inVisibleRect,
             ],
             owner: self,

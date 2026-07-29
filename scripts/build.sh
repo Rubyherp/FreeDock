@@ -53,6 +53,19 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>FreeDock dock item drag</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.freedock.dock-item</string>
+        </dict>
+    </array>
     <key>LSUIElement</key>
     <true/>
 </dict>

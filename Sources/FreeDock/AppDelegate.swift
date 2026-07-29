@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         configPath: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/freedock.json")
     )
+    private let itemDragCoordinator = DockItemDragCoordinator()
     private var _lockPositions = false
     private var dockStates: [UUID: DockState] = [:]
     private var preferencesStore: DockPreferencesStore?
@@ -26,6 +27,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickLaunchSession: QuickLaunchSession?
     private var quickLaunchResizeWorkItem: DispatchWorkItem?
     private var hideRestoredDocksAfterFolderStack = false
+    private var itemDragInteractionTokens: [UUID: UUID] = [:]
 
     private struct QuickLaunchSession {
         let dockID: UUID
@@ -46,6 +48,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        itemDragCoordinator.onSessionBegan = { [weak self] _ in
+            self?.beginDockItemDragInteraction()
+        }
+        itemDragCoordinator.onSessionEnded = { [weak self] _ in
+            self?.endDockItemDragInteraction()
+        }
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "FreeDock") {
             statusItem?.button?.image = image
@@ -69,6 +78,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         screenParametersWorkItem?.cancel()
+        itemDragCoordinator.cancel()
         endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         saveAllPositions()
@@ -1514,6 +1524,110 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPreferencesSnapshot()
     }
 
+    private func transferDockItem(
+        _ session: DockItemDragSession,
+        to targetDockID: UUID,
+        destination: DockItemTransferDestination,
+        operation: DockItemTransferOperation
+    ) -> Bool {
+        guard itemDragCoordinator.activeSession == session,
+              session.profileID == configManager.config.activeProfileID,
+              dockPanels[session.sourceDockID] != nil,
+              dockPanels[targetDockID] != nil
+        else {
+            itemDragCoordinator.finish(sessionID: session.id)
+            return false
+        }
+
+        var docks = configManager.config.docks
+        guard let sourceIndex = docks.firstIndex(where: {
+            $0.id == session.sourceDockID
+        }),
+        let targetIndex = docks.firstIndex(where: {
+            $0.id == targetDockID
+        })
+        else {
+            itemDragCoordinator.finish(sessionID: session.id)
+            return false
+        }
+
+        let effectiveOperation: DockItemTransferOperation =
+            session.sourceDockID == targetDockID ? .move : operation
+        let plan = DockItemTransferPlanner.planTransfer(
+            itemID: session.itemID,
+            from: docks[sourceIndex],
+            to: docks[targetIndex],
+            operation: effectiveOperation,
+            destination: destination
+        )
+
+        switch plan.outcome {
+        case .rejected:
+            NSSound.beep()
+            itemDragCoordinator.finish(sessionID: session.id)
+            return false
+        case .unchanged:
+            itemDragCoordinator.finish(sessionID: session.id)
+            return true
+        case .moved, .copied:
+            break
+        }
+
+        var changes: [(previous: DockConfig, updated: DockConfig)] = []
+        if sourceIndex == targetIndex {
+            let previous = docks[sourceIndex]
+            var updated = previous
+            updated.items = plan.sourceItems
+            docks[sourceIndex] = updated
+            changes.append((previous, updated))
+        } else {
+            let previousSource = docks[sourceIndex]
+            let previousTarget = docks[targetIndex]
+            var updatedSource = previousSource
+            var updatedTarget = previousTarget
+            updatedSource.items = plan.sourceItems
+            updatedTarget.items = plan.targetItems
+            docks[sourceIndex] = updatedSource
+            docks[targetIndex] = updatedTarget
+            if previousSource != updatedSource {
+                changes.append((previousSource, updatedSource))
+            }
+            if previousTarget != updatedTarget {
+                changes.append((previousTarget, updatedTarget))
+            }
+        }
+
+        guard !changes.isEmpty else {
+            itemDragCoordinator.finish(sessionID: session.id)
+            return true
+        }
+
+        // Make both sides visible atomically before panels or Preferences
+        // reconcile the transfer.
+        configManager.config.docks = docks
+
+        if let controller = folderStackController,
+           changes.contains(where: {
+               $0.updated.id == controller.dockID
+           })
+        {
+            closeFolderStack()
+        }
+
+        for change in changes {
+            preferencesStore?.replaceDock(change.updated)
+            reconcileDockRuntime(
+                from: change.previous,
+                to: change.updated
+            )
+        }
+        configManager.save()
+        refreshPreferencesSnapshot()
+        itemDragCoordinator.publishContentChange()
+        itemDragCoordinator.finish(sessionID: session.id)
+        return true
+    }
+
     private func activateDockItem(
         _ item: DockItem,
         sourceRect: CGRect,
@@ -2015,6 +2129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let content = DockContentView(
             panel: panel,
+            profileID: configManager.config.activeProfileID,
             items: Binding(
                 get: { self.configManager.config.docks.first(where: { $0.id == dockID })?.items ?? [] },
                 set: { newItems in
@@ -2023,6 +2138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ),
             orientation: config.orientation,
             state: state,
+            itemDragCoordinator: itemDragCoordinator,
             onItemActivation: { [weak self, weak panel] item, sourceRect in
                 guard let self, let panel else { return }
                 let restoredHiddenProfile = self.endQuickLaunch(
@@ -2046,6 +2162,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 {
                     self.hideDocksRestoredForQuickLaunch()
                 }
+            },
+            onItemTransfer: { [weak self] session, destination, operation in
+                guard let self else { return false }
+                return self.transferDockItem(
+                    session,
+                    to: dockID,
+                    destination: destination,
+                    operation: operation
+                )
             },
             onQuickLaunchDismiss: { [weak self] in
                 self?.endQuickLaunch(
@@ -2098,6 +2223,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func beginDockItemDragInteraction() {
+        endDockItemDragInteraction()
+        for (dockID, panel) in dockPanels {
+            itemDragInteractionTokens[dockID] =
+                panel.beginTransientInteraction()
+        }
+    }
+
+    private func endDockItemDragInteraction() {
+        let tokens = itemDragInteractionTokens
+        itemDragInteractionTokens.removeAll()
+        for (dockID, token) in tokens {
+            dockPanels[dockID]?.endTransientInteraction(token)
+        }
+    }
+
     private func saveAllPositions() {
         endQuickLaunch(reactivatePreviousApplication: true)
         for panel in dockPanels.values {
@@ -2113,6 +2254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeAllDockPanels() {
         TooltipManager.shared.hide()
+        itemDragCoordinator.cancel()
         hideRestoredDocksAfterFolderStack = false
         endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()

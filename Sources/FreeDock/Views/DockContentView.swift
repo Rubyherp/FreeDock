@@ -2,13 +2,20 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockContentView: View {
-    private static let dockItemType = UTType.plainText
+    private static let dockItemType = UTType.freeDockItem
 
     let panel: DockPanel
+    let profileID: UUID
     @Binding var items: [DockItem]
     let orientation: Orientation
     @ObservedObject var state: DockState
+    @ObservedObject var itemDragCoordinator: DockItemDragCoordinator
     let onItemActivation: @MainActor (DockItem, NSRect) -> Void
+    let onItemTransfer: @MainActor (
+        DockItemDragSession,
+        DockItemTransferDestination,
+        DockItemTransferOperation
+    ) -> Bool
     let onQuickLaunchDismiss: @MainActor () -> Void
     let onAddItemsRequested: @MainActor () -> Void
     let onAddSmartStackRequested: @MainActor (SmartStackSource) -> Void
@@ -20,7 +27,6 @@ struct DockContentView: View {
 
     @State private var isTargeted = false
     @State private var dropPulse = false
-    @State private var draggedItem: DockItem?
     @State private var displayedItems: [DockItem]?
     @State private var hoveredItem: UUID?
     @State private var dropTargetItem: UUID?
@@ -104,6 +110,15 @@ struct DockContentView: View {
             }
             .onChange(of: items) {
                 displayedItems = $0
+                reconcileQuickLaunchSelection()
+            }
+            .onChange(of: itemDragCoordinator.contentRevision) { _ in
+                withAnimation(.spring(
+                    response: 0.3,
+                    dampingFraction: 0.74
+                )) {
+                    displayedItems = items
+                }
                 reconcileQuickLaunchSelection()
             }
             .onChange(of: state.quickLaunchFocusGeneration) { _ in
@@ -377,6 +392,31 @@ struct DockContentView: View {
                 .foregroundStyle(chromeColor.opacity(0.65))
                 .padding(.horizontal, 13)
                 .padding(.vertical, 9)
+                .background {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(
+                            Color.accentColor.opacity(
+                                trailingTargeted ? 0.12 : 0
+                            )
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(
+                            Color.accentColor.opacity(
+                                trailingTargeted ? 0.7 : 0
+                            ),
+                            lineWidth: 1
+                        )
+                }
+                .contentShape(Rectangle())
+                .onDrop(
+                    of: [Self.dockItemType],
+                    delegate: itemDropDelegate(
+                        destination: .trailing,
+                        isTargeted: $trailingTargeted
+                    )
+                )
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
@@ -394,26 +434,17 @@ struct DockContentView: View {
                     )
                     .padding(orientation == .horizontal ? .leading : .top, 4)
                     .contentShape(Rectangle())
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
+                    .overlay {
+                        trailingDropIndicator
                             .allowsHitTesting(false)
-                    )
-                    .onDrop(of: [Self.dockItemType], isTargeted: $trailingTargeted) { _ in
-                        var updatedItems = displayedItems ?? items
-                        guard let dragged = draggedItem,
-                              let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
-                        else { return false }
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            updatedItems.move(
-                                fromOffsets: IndexSet(integer: fromIdx),
-                                toOffset: updatedItems.endIndex
-                            )
-                        }
-                        draggedItem = nil
-                        commitItems(updatedItems)
-                        return true
                     }
+                    .onDrop(
+                        of: [Self.dockItemType],
+                        delegate: itemDropDelegate(
+                            destination: .trailing,
+                            isTargeted: $trailingTargeted
+                        )
+                    )
             }
         }
     }
@@ -426,9 +457,15 @@ struct DockContentView: View {
             color: chromeColor
         )
         .contentShape(Rectangle())
-        .opacity(state.isQuickLaunchPresented ? 0.18 : 1)
+        .opacity(
+            state.isQuickLaunchPresented ? 0.18 : opacity(for: item)
+        )
         .allowsHitTesting(!state.isQuickLaunchPresented)
         .accessibilityHidden(state.isQuickLaunchPresented)
+        .overlay {
+            dockItemDropIndicator(for: item)
+                .allowsHitTesting(false)
+        }
         .contextMenu {
             Button("Remove Separator", role: .destructive) {
                 var updated = displayedItems ?? items
@@ -443,10 +480,11 @@ struct DockContentView: View {
             }
             .onDrop(
                 of: [Self.dockItemType],
-                isTargeted: nil
-            ) { providers in
-                handleReorder(providers, targetItem: item)
-            }
+                delegate: itemDropDelegate(
+                    destination: .item(item.id),
+                    isTargeted: dropTargetBinding(for: item.id)
+                )
+            )
     }
 
     @ViewBuilder
@@ -515,15 +553,11 @@ struct DockContentView: View {
             }
             .onDrop(
                 of: [Self.dockItemType],
-                isTargeted: Binding(
-                    get: { dropTargetItem == item.id },
-                    set: {
-                        dropTargetItem = $0 ? item.id : nil
-                    }
+                delegate: itemDropDelegate(
+                    destination: .item(item.id),
+                    isTargeted: dropTargetBinding(for: item.id)
                 )
-            ) { providers in
-                handleReorder(providers, targetItem: item)
-            }
+            )
     }
 
     struct DockSeparatorView: View {
@@ -571,7 +605,10 @@ struct DockContentView: View {
         if state.isQuickLaunchPresented {
             return matchingItemIDs.contains(item.id) ? 1 : 0.27
         }
-        return draggedItem?.id == item.id ? 0.4 : 1
+        return itemDragCoordinator.isDragging(
+            itemID: item.id,
+            from: panel.dockID
+        ) ? 0.4 : 1
     }
 
     @ViewBuilder
@@ -594,15 +631,83 @@ struct DockContentView: View {
                     radius: 5
                 )
         } else {
-            shape
-                .stroke(
-                    Color.accentColor.opacity(
-                        dropTargetItem == item.id ? 0.9 : 0
-                    ),
-                    lineWidth: 2
-                )
-                .padding(2)
+            dockItemDropIndicator(for: item)
         }
+    }
+
+    @ViewBuilder
+    private func dockItemDropIndicator(for item: DockItem) -> some View {
+        if dropTargetItem == item.id {
+            if orientation == .horizontal {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: 3,
+                        height: max(22, iconSize * 0.64)
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: dropsAfter(item) ? .trailing : .leading
+                    )
+                    .shadow(
+                        color: Color.accentColor.opacity(0.35),
+                        radius: 3
+                    )
+            } else {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: max(22, iconSize * 0.64),
+                        height: 3
+                    )
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: dropsAfter(item) ? .bottom : .top
+                    )
+                    .shadow(
+                        color: Color.accentColor.opacity(0.35),
+                        radius: 3
+                    )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trailingDropIndicator: some View {
+        if trailingTargeted {
+            if orientation == .horizontal {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: 3,
+                        height: max(22, iconSize * 0.64)
+                    )
+            } else {
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: max(22, iconSize * 0.64),
+                        height: 3
+                    )
+            }
+        }
+    }
+
+    private func dropsAfter(_ targetItem: DockItem) -> Bool {
+        guard let session = itemDragCoordinator.activeSession,
+              session.sourceDockID == panel.dockID,
+              let sourceIndex = currentItems.firstIndex(where: {
+                  $0.id == session.itemID
+              }),
+              let targetIndex = currentItems.firstIndex(where: {
+                  $0.id == targetItem.id
+              })
+        else {
+            return false
+        }
+        return sourceIndex < targetIndex
     }
 
     private func quickLaunchResultPosition(
@@ -829,25 +934,42 @@ struct DockContentView: View {
         guard !state.isQuickLaunchPresented else {
             return NSItemProvider()
         }
-        draggedItem = item
-        return NSItemProvider(object: item.id.uuidString as NSString)
+        TooltipManager.shared.hide()
+        return itemDragCoordinator.beginDrag(
+            profileID: profileID,
+            sourceDockID: panel.dockID,
+            itemID: item.id
+        )
     }
 
-    private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {
-        guard !state.isQuickLaunchPresented else { return false }
-        var updatedItems = displayedItems ?? items
-        guard
-            let dragged = draggedItem,
-            let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id }),
-            let toIdx = updatedItems.firstIndex(where: { $0.id == targetItem.id }),
-            fromIdx != toIdx
-        else { return false }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            updatedItems.move(fromOffsets: IndexSet(integer: fromIdx), toOffset: toIdx > fromIdx ? toIdx + 1 : toIdx)
-        }
-        draggedItem = nil
-        commitItems(updatedItems)
-        return true
+    private func itemDropDelegate(
+        destination: DockItemTransferDestination,
+        isTargeted: Binding<Bool>
+    ) -> DockItemDropDelegate {
+        DockItemDropDelegate(
+            profileID: profileID,
+            targetDockID: panel.dockID,
+            destination: destination,
+            coordinator: itemDragCoordinator,
+            isEnabled: !state.isQuickLaunchPresented,
+            isTargeted: isTargeted,
+            onTransfer: onItemTransfer
+        )
+    }
+
+    private func dropTargetBinding(
+        for itemID: DockItem.ID
+    ) -> Binding<Bool> {
+        Binding(
+            get: { dropTargetItem == itemID },
+            set: { targeted in
+                if targeted {
+                    dropTargetItem = itemID
+                } else if dropTargetItem == itemID {
+                    dropTargetItem = nil
+                }
+            }
+        )
     }
 
     private func removeItem(_ item: DockItem) {
@@ -867,6 +989,87 @@ struct DockContentView: View {
             smartStack: source,
             to: currentItems
         ).addedCount > 0
+    }
+}
+
+@MainActor
+private struct DockItemDropDelegate: DropDelegate {
+    let profileID: UUID
+    let targetDockID: UUID
+    let destination: DockItemTransferDestination
+    let coordinator: DockItemDragCoordinator
+    let isEnabled: Bool
+    @Binding var isTargeted: Bool
+    let onTransfer: @MainActor (
+        DockItemDragSession,
+        DockItemTransferDestination,
+        DockItemTransferOperation
+    ) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        canAccept(info)
+    }
+
+    func dropEntered(info: DropInfo) {
+        isTargeted = canAccept(info)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard canAccept(info),
+              let session = coordinator.activeSession
+        else {
+            return DropProposal(operation: .forbidden)
+        }
+        return DropProposal(
+            operation: transferOperation(for: session) == .copy
+                ? .copy
+                : .move
+        )
+    }
+
+    func dropExited(info _: DropInfo) {
+        isTargeted = false
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard canAccept(info),
+              let expectedSession = coordinator.activeSession,
+              let provider = info.itemProviders(
+                  for: [UTType.freeDockItem]
+              ).first
+        else {
+            isTargeted = false
+            return false
+        }
+
+        let operation = transferOperation(for: expectedSession)
+        isTargeted = false
+        coordinator.loadSession(from: provider) { payload in
+            guard let payload,
+                  payload == expectedSession,
+                  coordinator.activeSession == expectedSession
+            else {
+                coordinator.cancel()
+                return
+            }
+            _ = onTransfer(payload, destination, operation)
+        }
+        return true
+    }
+
+    private func canAccept(_ info: DropInfo) -> Bool {
+        isEnabled
+            && info.hasItemsConforming(to: [UTType.freeDockItem])
+            && coordinator.activeSession?.profileID == profileID
+    }
+
+    private func transferOperation(
+        for session: DockItemDragSession
+    ) -> DockItemTransferOperation {
+        guard session.sourceDockID != targetDockID else {
+            return .move
+        }
+        return NSEvent.modifierFlags.contains(.option) ? .copy : .move
     }
 }
 

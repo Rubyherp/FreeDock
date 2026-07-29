@@ -59,6 +59,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
 - **Smart stacks** — Add Recent Files and Downloads without pinning fixed paths; Recent Files tracks successful document opens through FreeDock, while Downloads resolves for the current user
 - **Reorder** — Drag apps, documents, folders, and separators into any arrangement
+- **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
 - **Open in one click** — Launch apps, open documents, or browse folder stacks
@@ -109,7 +110,7 @@ make run
 4. Click an app or document to open it, or click a folder to browse its live contents
 5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
 6. Use a stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
-7. Drag pinned items to reorder them, or drag the empty space around the dock to reposition it
+7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
 8. Right-click an item to open or reveal it, copy its path, or remove it
 9. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
