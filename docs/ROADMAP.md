@@ -12,10 +12,10 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Saved dock profiles for activities such as Work, Design, and Focus
 - Global shortcuts to reveal docks and switch profiles
 - A dedicated preferences window for per-dock behavior and appearance
+- Optional, append-only import of pinned apps from the macOS Dock
 
 ## Next: better daily workflows
 
-- Optional import of the apps in the system Dock
 - Per-display placement and profile selection
 
 ## Later: organize more than apps

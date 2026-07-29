@@ -25,6 +25,7 @@ enum DockManagementAction: Equatable {
     case renameDock(UUID)
     case duplicateDock(UUID)
     case deleteDock(UUID)
+    case importSystemDockApps(UUID)
     case resetDockSettings(UUID)
     case copyDockSettingsToAll(UUID)
 }

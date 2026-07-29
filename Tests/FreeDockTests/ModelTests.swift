@@ -416,6 +416,9 @@ func preferencesStoreSelectionAndUpdates() {
     #expect(store.selectedDock?.shadowStrength == DockConfig.shadowStrengthRange.upperBound)
     #expect(received?.1 == .shadowStrength(9))
 
+    store.perform(.importSystemDockApps(second.id))
+    #expect(managementAction == .importSystemDockApps(second.id))
+
     let replacement = DockConfig(name: "Personal Dock")
     let personalProfile = DockProfile(name: "Personal", docks: [replacement])
     store.reload(

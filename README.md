@@ -52,6 +52,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
+- **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
 - **Drag & drop** — Drag `.app` files from Finder directly onto a dock
 - **Reorder** — Drag icons within a dock to rearrange them
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
@@ -107,7 +108,7 @@ make run
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
+**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 

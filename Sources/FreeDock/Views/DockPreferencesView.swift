@@ -381,6 +381,19 @@ struct DockPreferencesView: View {
                     }
 
                     settingsSection(
+                        title: "Apps",
+                        symbol: "square.grid.3x3.fill"
+                    ) {
+                        actionRow(
+                            title: "Import from macOS Dock",
+                            description: "Append pinned apps that aren’t already here. Existing apps and separators stay unchanged.",
+                            buttonTitle: "Import…"
+                        ) {
+                            store.perform(.importSystemDockApps(dock.id))
+                        }
+                    }
+
+                    settingsSection(
                         title: "Reuse & Reset",
                         symbol: "arrow.triangle.2.circlepath"
                     ) {

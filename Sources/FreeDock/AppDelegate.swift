@@ -256,6 +256,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             duplicateDock(dockID)
         case let .deleteDock(dockID):
             confirmAndDeleteDock(dockID)
+        case let .importSystemDockApps(dockID):
+            confirmAndImportSystemDockApps(into: dockID)
         case let .resetDockSettings(dockID):
             confirmAndResetDockSettings(dockID)
         case let .copyDockSettingsToAll(dockID):
@@ -758,6 +760,99 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesStore?.selectedDockID = duplicate.id
     }
 
+    private func confirmAndImportSystemDockApps(into id: UUID) {
+        guard let dockIndex = configManager.config.docks.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let loadResult: SystemDockLoadResult
+        do {
+            loadResult = try SystemDockImporter.loadPinnedApps()
+        } catch {
+            showSystemDockImportNotice(
+                title: "Couldn’t Read the macOS Dock",
+                message: error.localizedDescription
+            )
+            return
+        }
+
+        guard !loadResult.apps.isEmpty else {
+            let unavailableDetail = loadResult.unavailableCount > 0
+                ? " \(loadResult.unavailableCount) pinned app\(loadResult.unavailableCount == 1 ? " is" : "s are") no longer available."
+                : ""
+            showSystemDockImportNotice(
+                title: "No Apps Found",
+                message: "FreeDock couldn’t find any installed apps pinned in the macOS Dock.\(unavailableDetail)"
+            )
+            return
+        }
+
+        let dock = configManager.config.docks[dockIndex]
+        let plan = SystemDockImporter.planImport(
+            apps: loadResult.apps,
+            existingItems: dock.items
+        )
+        guard !plan.items.isEmpty else {
+            let unavailableDetail = loadResult.unavailableCount > 0
+                ? " \(loadResult.unavailableCount) unavailable app\(loadResult.unavailableCount == 1 ? " was" : "s were") skipped."
+                : ""
+            showSystemDockImportNotice(
+                title: "Already Up to Date",
+                message: "Every available app from the macOS Dock is already in “\(dock.name)”.\(unavailableDetail)"
+            )
+            return
+        }
+
+        let count = plan.items.count
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = "Import \(count) app\(count == 1 ? "" : "s") into “\(dock.name)”?"
+        var details = "The apps will be added after the dock’s existing items. Nothing will be replaced, and the macOS Dock will not be changed."
+        if plan.skippedCount > 0 {
+            details += " \(plan.skippedCount) app\(plan.skippedCount == 1 ? " was" : "s were") skipped because \(plan.skippedCount == 1 ? "it is" : "they are") already present."
+        }
+        if loadResult.unavailableCount > 0 {
+            details += " \(loadResult.unavailableCount) unavailable app\(loadResult.unavailableCount == 1 ? " was" : "s were") skipped."
+        }
+        alert.informativeText = details
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Import")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        let previous = dock
+        var updated = dock
+        updated.items.append(contentsOf: plan.items)
+        configManager.config.docks[dockIndex] = updated
+        preferencesStore?.replaceDock(updated)
+        reconcileDockRuntime(from: previous, to: updated)
+        configManager.save()
+        refreshPreferencesSnapshot()
+
+        var resultMessage = "Added \(count) app\(count == 1 ? "" : "s") to “\(dock.name)”."
+        if plan.skippedCount > 0 {
+            resultMessage += " \(plan.skippedCount) app\(plan.skippedCount == 1 ? " was" : "s were") already present."
+        }
+        if loadResult.unavailableCount > 0 {
+            resultMessage += " \(loadResult.unavailableCount) unavailable app\(loadResult.unavailableCount == 1 ? " was" : "s were") skipped."
+        }
+        let completedMessage = resultMessage
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            self?.showSystemDockImportNotice(
+                title: "Import Complete",
+                message: completedMessage
+            )
+        }
+    }
+
+    private func showSystemDockImportNotice(title: String, message: String) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func confirmAndResetDockSettings(_ id: UUID) {
         guard let dock = configManager.config.docks.first(where: { $0.id == id }) else { return }
 
@@ -863,6 +958,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             || previous.magnificationEnabled != updated.magnificationEnabled
             || previous.magnification != updated.magnification
             || previous.itemSpacing != updated.itemSpacing
+            || previous.items != updated.items
         let autoHideChanged = previous.autoHideWhenDocked != updated.autoHideWhenDocked
 
         if geometryChanged {
