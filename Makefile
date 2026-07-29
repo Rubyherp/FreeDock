@@ -4,7 +4,9 @@ bundle:
 	./scripts/build.sh
 
 run: bundle
-	open build/FreeDock.app
+	@killall FreeDock >/dev/null 2>&1 || true
+	@sleep 0.5
+	@open -n "$(CURDIR)/build/FreeDock.app"
 
 test:
 	swift test

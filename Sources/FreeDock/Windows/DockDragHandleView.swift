@@ -10,31 +10,17 @@ class DockDragHandleView: NSView {
     private var tracking: NSTrackingArea?
 
     private var stripRect: NSRect {
-        let edgeInset: CGFloat = 8
-
         if orientation == .horizontal {
-            let hitWidth: CGFloat = 24
-            return NSRect(
-                x: edgeInset,
-                y: edgeInset,
-                width: hitWidth,
-                height: max(0, bounds.height - edgeInset * 2)
-            )
+            return bounds.insetBy(dx: 3, dy: 8)
         }
 
-        let hitHeight: CGFloat = 24
-        return NSRect(
-            x: edgeInset,
-            y: edgeInset,
-            width: max(0, bounds.width - edgeInset * 2),
-            height: hitHeight
-        )
+        return bounds.insetBy(dx: 8, dy: 3)
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        highlightLayer.cornerRadius = 8
+        highlightLayer.cornerRadius = 3
         highlightLayer.borderWidth = 1
         layer?.addSublayer(highlightLayer)
         updateAppearance(isHovered: false)
@@ -61,21 +47,21 @@ class DockDragHandleView: NSView {
 
     override func layout() {
         super.layout()
-        let pillW: CGFloat = 5
-        let pillH = CGFloat(22)
+        let pillW: CGFloat = 3
+        let pillH = CGFloat(18)
 
         if orientation == .horizontal {
             highlightLayer.frame = NSRect(
-                x: (stripRect.width - pillW) / 2 + stripRect.minX,
-                y: (bounds.height - pillH) / 2,
+                x: stripRect.midX - pillW / 2,
+                y: stripRect.midY - pillH / 2,
                 width: pillW,
                 height: pillH
             )
             highlightLayer.cornerRadius = pillW / 2
         } else {
             highlightLayer.frame = NSRect(
-                x: (bounds.width - pillH) / 2,
-                y: (stripRect.height - pillW) / 2 + stripRect.minY,
+                x: stripRect.midX - pillH / 2,
+                y: stripRect.midY - pillW / 2,
                 width: pillH,
                 height: pillW
             )
@@ -115,11 +101,11 @@ class DockDragHandleView: NSView {
 
     private func updateAppearance(isHovered: Bool) {
         let locked = dockPanel?.dockDelegate?.lockPositions ?? false
-        highlightLayer.backgroundColor = NSColor.white
-            .withAlphaComponent(isHovered ? 0.55 : 0.25)
+        highlightLayer.backgroundColor = NSColor.labelColor
+            .withAlphaComponent(isHovered ? 0.38 : 0)
             .cgColor
         highlightLayer.borderColor = NSColor.white
-            .withAlphaComponent(isHovered ? 0.70 : 0.35)
+            .withAlphaComponent(isHovered ? 0.24 : 0)
             .cgColor
         alphaValue = locked ? 0.4 : 1.0
     }

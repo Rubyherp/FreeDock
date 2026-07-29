@@ -53,11 +53,31 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>FreeDock uses Screen Recording only to create temporary window previews while the dock switcher is open.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>FreeDock dock item drag</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.freedock.dock-item</string>
+        </dict>
+    </array>
     <key>LSUIElement</key>
     <true/>
 </dict>
 </plist>
 EOF
+
+# SwiftPM ad-hoc signs the standalone executable. Copying it into a bundle with
+# resources changes its signing context, so sign the completed app bundle before
+# Launch Services opens it.
+codesign --force --sign - "$APP_BUNDLE"
 
 echo "==> App bundle created at $APP_BUNDLE"
 echo "    Open with: open \"$APP_BUNDLE\""
