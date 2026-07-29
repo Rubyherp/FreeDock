@@ -24,6 +24,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenParametersWorkItem: DispatchWorkItem?
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
     private var folderStackController: FolderStackPanelController?
+    private let windowPreviewController =
+        WindowPreviewPanelController()
     private var quickLaunchSession: QuickLaunchSession?
     private var quickLaunchResizeWorkItem: DispatchWorkItem?
     private var hideRestoredDocksAfterFolderStack = false
@@ -90,6 +92,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_: Notification) {
         screenParametersWorkItem?.cancel()
         itemDragCoordinator.cancel()
+        windowPreviewController.close(resetNativeController: true)
         endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         saveAllPositions()
@@ -97,6 +100,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
+        windowPreviewController.close(resetNativeController: false)
         endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         for panel in dockPanels.values {
@@ -837,6 +841,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleQuickLaunch() {
+        windowPreviewController.close(resetNativeController: false)
         if quickLaunchSession != nil {
             endQuickLaunch(reactivatePreviousApplication: true)
             return
@@ -1436,6 +1441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        windowPreviewController.close(resetNativeController: false)
         closeFolderStack()
         let sourceDock = dockPanels[dockID]
         let interactionToken = sourceDock?.beginTransientInteraction()
@@ -1646,6 +1652,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ) {
         guard item.kind != .separator else { return }
 
+        windowPreviewController.close(resetNativeController: false)
         if item.kind == .folder {
             if let controller = folderStackController,
                controller.dockID == panel.dockID,
@@ -2349,6 +2356,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildVisibleDock(_ dockID: UUID, using config: DockConfig) {
         guard let panel = dockPanels[dockID] else { return }
 
+        windowPreviewController.close(
+            forDockID: dockID,
+            resetNativeController: false
+        )
         endQuickLaunch(
             ifDockID: dockID,
             reactivatePreviousApplication: false
@@ -2489,6 +2500,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     with: item,
                     from: panel
                 )
+            },
+            onApplicationHoverChanged: {
+                [weak self, weak panel] item, sourceRect, hovering in
+                guard let self, let panel else { return }
+                if hovering {
+                    self.windowPreviewController.hoverBegan(
+                        item: item,
+                        presentation:
+                            DockItemPresentation.resolve(item),
+                        sourceRect: sourceRect,
+                        sourceDock: panel
+                    )
+                } else {
+                    self.windowPreviewController.hoverEnded(
+                        itemID: item.id
+                    )
+                }
+            },
+            onShowApplicationWindows: {
+                [weak self, weak panel] item, sourceRect in
+                guard let self, let panel else { return }
+                self.windowPreviewController.showExplicit(
+                    item: item,
+                    presentation:
+                        DockItemPresentation.resolve(item),
+                    sourceRect: sourceRect,
+                    sourceDock: panel
+                )
+            },
+            onEnableWindowThumbnails: { [weak self] in
+                self?.windowPreviewController
+                    .enableWindowThumbnails()
+            },
+            isWindowPreviewAccessibilityTrusted: {
+                [weak self] in
+                self?.windowPreviewController
+                    .isAccessibilityTrusted ?? false
+            },
+            isWindowPreviewScreenCaptureTrusted: {
+                [weak self] in
+                self?.windowPreviewController
+                    .isScreenCaptureTrusted ?? false
+            },
+            onDismissWindowPreview: { [weak self] in
+                self?.windowPreviewController.close(
+                    forDockID: dockID,
+                    resetNativeController: false
+                )
             }
         )
 
@@ -2560,6 +2619,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeAllDockPanels() {
         TooltipManager.shared.hide()
+        windowPreviewController.close(resetNativeController: true)
         itemDragCoordinator.cancel()
         hideRestoredDocksAfterFolderStack = false
         endQuickLaunch(reactivatePreviousApplication: false)
@@ -2594,6 +2654,10 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidMove(_ panel: DockPanel) {
+        windowPreviewController.close(
+            forDockID: panel.dockID,
+            resetNativeController: false
+        )
         closeFolderStack(for: panel.dockID)
         let screen = DockDisplayManager.screen(containing: panel.frame)
         let snapped = panel.autoHideWhenDocked
@@ -2631,6 +2695,13 @@ extension AppDelegate: DockPanelDelegate {
         )
     }
 
+    func dockPanelMenuDidBeginTracking(_ panel: DockPanel) {
+        windowPreviewController.close(
+            forDockID: panel.dockID,
+            resetNativeController: false
+        )
+    }
+
     func currentIconSize(for panel: DockPanel) -> Double {
         dockStates[panel.dockID]?.iconSize ?? 48
     }
@@ -2646,6 +2717,10 @@ extension AppDelegate: DockPanelDelegate {
         }
 
         if activeDockResizeIDs.insert(dockID).inserted {
+            windowPreviewController.close(
+                forDockID: dockID,
+                resetNativeController: false
+            )
             closeFolderStack(for: dockID)
             panel.revealImmediately()
 

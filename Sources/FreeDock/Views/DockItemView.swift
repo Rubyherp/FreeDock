@@ -12,6 +12,11 @@ struct DockItemView: View {
     let onClearRecentFilesRequested: () -> Void
     let onOpenDocumentWithApplication: (URL) -> Void
     let onChooseFilesForApplication: () -> Void
+    let onApplicationHoverChanged: (Bool, NSRect) -> Void
+    let onShowApplicationWindows: (NSRect) -> Void
+    let onEnableWindowThumbnails: () -> Void
+    let isWindowPreviewAccessibilityTrusted: () -> Bool
+    let isWindowPreviewScreenCaptureTrusted: () -> Bool
 
     @ObservedObject private var monitor = RunningAppMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -76,12 +81,6 @@ struct DockItemView: View {
         }
         .buttonStyle(.plain)
         .focusable(false)
-        .background(ScreenRectReader { screenRect = $0 })
-        .onHover(perform: updateHover)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.15),
-            value: isHovering
-        )
         .padding(4)
         .scaleEffect(scale, anchor: magnificationAnchor)
         .offset(y: bouncing && orientation == .horizontal ? -5 : 0)
@@ -99,6 +98,29 @@ struct DockItemView: View {
             value: scale
         )
         .offset(hoverOffset)
+        // Hover belongs to this fixed cell, not the magnified icon. Otherwise
+        // the icon can move out from under the pointer and cancel its own
+        // preview timer while it animates.
+        .frame(
+            width: iconSize + 9,
+            height: iconSize + 11
+        )
+        .contentShape(Rectangle())
+        .background(ScreenRectReader { updatedScreenRect in
+            guard screenRect != updatedScreenRect else { return }
+            screenRect = updatedScreenRect
+            if isHovering,
+               item.kind == .application,
+               isRunning
+            {
+                onApplicationHoverChanged(true, updatedScreenRect)
+            }
+        })
+        .onHover(perform: updateHover)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.15),
+            value: isHovering
+        )
         .contextMenu { itemContextMenu }
         .accessibilityLabel(resolvedPresentation.displayName)
         .accessibilityValue(accessibilityValue)
@@ -211,7 +233,6 @@ struct DockItemView: View {
                 ) {
                     performApplicationAction(.quit, bundleID: bundleID)
                 }
-                Divider()
             } else {
                 Button("Open") { activate() }
                     .disabled(!resolvedPresentation.isAvailable)
@@ -221,6 +242,31 @@ struct DockItemView: View {
                 .disabled(!resolvedPresentation.isAvailable)
         }
 
+        let hasWindowPreviewAccess =
+            isWindowPreviewAccessibilityTrusted()
+        if hasWindowPreviewAccess {
+            Button("Show Windows…") {
+                onShowApplicationWindows(screenRect)
+            }
+            .disabled(
+                !resolvedPresentation.isAvailable
+                    || !isRunning
+            )
+
+            if !isWindowPreviewScreenCaptureTrusted() {
+                Button("Enable Window Thumbnails…") {
+                    onEnableWindowThumbnails()
+                }
+                .disabled(!resolvedPresentation.isAvailable)
+            }
+        } else {
+            Button("Enable Window Switching…") {
+                onShowApplicationWindows(screenRect)
+            }
+            .disabled(!resolvedPresentation.isAvailable)
+        }
+
+        Divider()
         Button(
             "Open Files with \(resolvedPresentation.displayName)…",
             action: onChooseFilesForApplication
@@ -459,7 +505,7 @@ struct DockItemView: View {
         case .folder:
             return "Shows this folder’s contents."
         case .application:
-            return "Opens the application. Use the context menu to choose files, or drop compatible files onto it."
+            return "Opens the application. Use the context menu to show open windows or choose files, or drop compatible files onto it."
         case .document:
             return "Opens the document in its default application."
         case .separator:
@@ -469,6 +515,9 @@ struct DockItemView: View {
 
     private func activate() {
         TooltipManager.shared.hide()
+        if item.kind == .application {
+            onApplicationHoverChanged(false, screenRect)
+        }
         bounce()
         onActivate(screenRect)
     }
@@ -479,7 +528,7 @@ struct DockItemView: View {
             hoveredItem = item.id
             NSCursor.pointingHand.push()
             TooltipManager.shared.show(
-                resolvedPresentation.displayName,
+                windowPreviewTooltipText,
                 at: screenRect,
                 orientation: orientation
             )
@@ -491,6 +540,28 @@ struct DockItemView: View {
             NSCursor.pop()
             TooltipManager.shared.hide()
         }
+
+        if item.kind == .application {
+            onApplicationHoverChanged(
+                hovering && isRunning,
+                screenRect
+            )
+        }
+    }
+
+    private var windowPreviewTooltipText: String {
+        guard item.kind == .application,
+              isRunning
+        else {
+            return resolvedPresentation.displayName
+        }
+        if !isWindowPreviewAccessibilityTrusted() {
+            return "Right-click to enable window switching"
+        }
+        if !isWindowPreviewScreenCaptureTrusted() {
+            return "Hover for windows · right-click for thumbnails"
+        }
+        return resolvedPresentation.displayName
     }
 
     private func refreshPresentation() {

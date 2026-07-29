@@ -38,6 +38,21 @@ struct DockContentView: View {
         [URL]
     ) -> Bool
     let onChooseFilesForApplication: @MainActor (DockItem) -> Void
+    let onApplicationHoverChanged: @MainActor (
+        DockItem,
+        NSRect,
+        Bool
+    ) -> Void
+    let onShowApplicationWindows: @MainActor (
+        DockItem,
+        NSRect
+    ) -> Void
+    let onEnableWindowThumbnails: @MainActor () -> Void
+    let isWindowPreviewAccessibilityTrusted:
+        @MainActor () -> Bool
+    let isWindowPreviewScreenCaptureTrusted:
+        @MainActor () -> Bool
+    let onDismissWindowPreview: @MainActor () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var iconSize: Double {
@@ -161,7 +176,10 @@ struct DockContentView: View {
             .onChange(of: hoveredItem) { itemID in
                 updateQuickLaunchSelectionFromHover(itemID)
             }
-            .onDisappear(perform: tearDownExternalFileDropInteraction)
+            .onDisappear {
+                onDismissWindowPreview()
+                tearDownExternalFileDropInteraction()
+            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("\(state.name) dock")
             .contextMenu {
@@ -543,6 +561,22 @@ struct DockContentView: View {
             onChooseFilesForApplication: {
                 onChooseFilesForApplication(item)
             },
+            onApplicationHoverChanged: { hovering, screenRect in
+                onApplicationHoverChanged(
+                    item,
+                    screenRect,
+                    hovering
+                )
+            },
+            onShowApplicationWindows: { screenRect in
+                onShowApplicationWindows(item, screenRect)
+            },
+            onEnableWindowThumbnails:
+                onEnableWindowThumbnails,
+            isWindowPreviewAccessibilityTrusted:
+                isWindowPreviewAccessibilityTrusted,
+            isWindowPreviewScreenCaptureTrusted:
+                isWindowPreviewScreenCaptureTrusted,
             hoveredItem: $hoveredItem,
             orientation: orientation,
             showRunningIndicator: state.showRunningIndicators,
@@ -1199,6 +1233,7 @@ struct DockContentView: View {
         _ providers: [NSItemProvider],
         onto item: DockItem
     ) {
+        onDismissWindowPreview()
         guard !externalFileDropClaimState.isOperationInProgress
         else {
             return
@@ -1348,6 +1383,7 @@ struct DockContentView: View {
 
     private func updateExternalFileDropTargeting(_ targeted: Bool) {
         if targeted {
+            onDismissWindowPreview()
             beginExternalFileDropInteraction()
         } else {
             endExternalFileDropInteractionIfPossible()
@@ -1445,6 +1481,7 @@ struct DockContentView: View {
         guard !state.isQuickLaunchPresented else {
             return NSItemProvider()
         }
+        onDismissWindowPreview()
         TooltipManager.shared.hide()
         return itemDragCoordinator.beginDrag(
             profileID: profileID,

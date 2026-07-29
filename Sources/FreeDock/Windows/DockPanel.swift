@@ -342,6 +342,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
         let menuAlreadyBelongsToDock = !menuInteractionTokens.isEmpty
         guard menuAlreadyBelongsToDock || pointerIsOverDock else { return }
 
+        dockDelegate?.dockPanelMenuDidBeginTracking(self)
         menuInteractionTokens[menuID] = beginTransientInteraction()
     }
 

@@ -62,6 +62,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
+- **Native window switching** — Preview a running app’s windows by title and choose one to bring it forward
 - **Native item controls** — Right-click to show, hide, or quit apps; choose how stacks are displayed and sorted; or open a document with another compatible app
 - **Open files with apps** — Drop compatible Finder files or folders directly onto a pinned application
 - **Open in one click** — Launch apps, open documents, or browse folder stacks
@@ -102,6 +103,8 @@ make run
 
 > **Note:** `swift run` launches the binary directly, bypassing the `.app` bundle. The `LSUIElement` setting (menu-bar agent mode) won't be respected this way. Always use `make run`, `./scripts/build.sh`, or open the `.app` bundle.
 
+> **Development permissions:** Local builds are ad-hoc signed, so macOS may ask you to grant Accessibility or Screen Recording again after the executable changes. Properly signed release builds keep a stable permission identity.
+
 **Requirements:** macOS 12+, Xcode 15+
 
 ## Usage
@@ -113,13 +116,18 @@ make run
 5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
 6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
-8. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
-9. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
-10. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
+8. Right-click a running app and choose **Enable Window Switching…** to request Accessibility access from macOS
+9. Choose **Enable Window Thumbnails…** to optionally grant Screen Recording access; macOS may require FreeDock to be reopened after approval
+10. Hover over the app or choose **Show Windows…** to see its windows across desktops, then select one to bring it forward
+11. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
+12. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
+13. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
 **Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the stack or its right-click menu.
+
+**Window switching privacy:** Discovery and focus happen locally using macOS Accessibility and WindowServer APIs. Optional window thumbnails require Screen Recording access, are kept in a small memory-only cache, and are never written to disk. Without that permission, the same cards remain available with app icons and window titles. A thumbnail shows each window’s currently selected tab; inactive tabs are not separate macOS windows and cannot be captured generically without switching them. Like every FreeDock feature, window switching remains free and open source.
 
 **Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 

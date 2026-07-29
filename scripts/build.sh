@@ -53,6 +53,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>FreeDock uses Screen Recording only to create temporary window previews while the dock switcher is open.</string>
     <key>UTExportedTypeDeclarations</key>
     <array>
         <dict>
