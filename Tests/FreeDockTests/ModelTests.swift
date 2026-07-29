@@ -14,7 +14,14 @@ func dockItemRoundTrip() throws {
 @Test("DockConfig round-trips all fields")
 func dockConfigRoundTrip() throws {
     let item = DockItem(appPath: "/App.app")
+    let displayID = UUID()
+    let displayPlacement = DockDisplayPlacement(
+        displayID: displayID,
+        displayName: "Studio Display",
+        normalizedCenter: CGPoint(x: 0.25, y: 0.75)
+    )
     let config = DockConfig(id: UUID(), name: "Test", position: CGPoint(x: 100, y: 200),
+                            displayPlacement: displayPlacement,
                             orientation: .vertical, iconSize: 64, items: [item],
                             autoHideWhenDocked: false, magnificationEnabled: false,
                             magnification: 1.55, itemSpacing: 9, appearance: .dark,
@@ -28,6 +35,7 @@ func dockConfigRoundTrip() throws {
     #expect(decoded.iconSize == 64)
     #expect(decoded.items.count == 1)
     #expect(decoded.position == CGPoint(x: 100, y: 200))
+    #expect(decoded.displayPlacement == displayPlacement)
     #expect(!decoded.autoHideWhenDocked)
     #expect(!decoded.magnificationEnabled)
     #expect(decoded.magnification == 1.55)
@@ -55,6 +63,7 @@ func dockConfigMigratesAutoHidePreference() throws {
     """.data(using: .utf8)!
 
     let decoded = try JSONDecoder().decode(DockConfig.self, from: data)
+    #expect(decoded.displayPlacement == nil)
     #expect(decoded.autoHideWhenDocked)
     #expect(decoded.magnificationEnabled)
     #expect(decoded.magnification == 1.30)
@@ -92,9 +101,15 @@ func dockConfigNormalizesPreferences() {
 
 @Test("Duplicating a dock preserves settings with fresh identities")
 func dockConfigDuplicate() {
+    let displayPlacement = DockDisplayPlacement(
+        displayID: UUID(),
+        displayName: "External Display",
+        normalizedCenter: CGPoint(x: 0.7, y: 0.3)
+    )
     let original = DockConfig(
         name: "Original",
         position: CGPoint(x: 10, y: 20),
+        displayPlacement: displayPlacement,
         orientation: .vertical,
         iconSize: 72,
         items: [
@@ -122,6 +137,7 @@ func dockConfigDuplicate() {
     #expect(duplicate.id != original.id)
     #expect(duplicate.name == "Original Copy")
     #expect(duplicate.position == CGPoint(x: 42, y: 20))
+    #expect(duplicate.displayPlacement == displayPlacement)
     #expect(duplicate.orientation == original.orientation)
     #expect(duplicate.iconSize == original.iconSize)
     #expect(duplicate.autoHideWhenDocked == original.autoHideWhenDocked)
@@ -161,11 +177,17 @@ func dockConfigApplySettings() {
     var target = DockConfig(
         name: "Target",
         position: CGPoint(x: 80, y: 120),
+        displayPlacement: DockDisplayPlacement(
+            displayID: UUID(),
+            displayName: "Target Display",
+            normalizedCenter: CGPoint(x: 0.2, y: 0.8)
+        ),
         items: [DockItem(appPath: "/Applications/Target.app")]
     )
     let originalID = target.id
     let originalItems = target.items
     let originalPosition = target.position
+    let originalDisplayPlacement = target.displayPlacement
 
     target.apply(settings: source.settings)
 
@@ -173,6 +195,7 @@ func dockConfigApplySettings() {
     #expect(target.name == "Target")
     #expect(target.items == originalItems)
     #expect(target.position == originalPosition)
+    #expect(target.displayPlacement == originalDisplayPlacement)
     #expect(target.settings == source.settings)
 }
 
@@ -372,10 +395,21 @@ func preferencesStoreSelectionAndUpdates() {
     var received: (UUID, DockPreferenceChange)?
     var managementAction: DockManagementAction?
     let profileID = UUID()
+    let displayID = UUID()
+    let displays = [
+        DockDisplayDescriptor(
+            id: displayID,
+            name: "Studio Display",
+            frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1055),
+            isPrimary: true
+        ),
+    ]
     let workProfile = DockProfile(id: profileID, name: "Work", docks: [first, second])
     let store = DockPreferencesStore(
         profiles: [workProfile],
-        activeProfileID: profileID
+        activeProfileID: profileID,
+        displays: displays
     ) { dockID, change in
         received = (dockID, change)
     } onManagementAction: { action in
@@ -384,22 +418,49 @@ func preferencesStoreSelectionAndUpdates() {
     #expect(store.activeProfileName == "Work")
     #expect(!store.canDeleteActiveProfile)
     #expect(store.canCopySelectedDockSettings)
+    #expect(store.displays == displays)
 
     store.selectedDockID = second.id
+    let renamedSecond = DockConfig(
+        id: second.id,
+        name: "Renamed",
+        displayPlacement: DockDisplayPlacement(
+            displayID: displayID,
+            displayName: "Studio Display"
+        )
+    )
+    let refreshedProfiles = [
+        DockProfile(
+            id: profileID,
+            name: "Work",
+            docks: [
+                DockConfig(id: first.id, name: "First"),
+                renamedSecond,
+            ]
+        ),
+    ]
     store.reload(
-        profiles: [
-            DockProfile(
-                id: profileID,
-                name: "Work",
-                docks: [
-                    DockConfig(id: first.id, name: "First"),
-                    DockConfig(id: second.id, name: "Renamed"),
-                ]
-            ),
-        ],
+        profiles: refreshedProfiles,
         activeProfileID: profileID
     )
     #expect(store.selectedDockID == second.id)
+    #expect(store.displayLabel(for: renamedSecond) == "Studio Display (Main)")
+
+    store.reload(
+        profiles: refreshedProfiles,
+        activeProfileID: profileID,
+        displays: []
+    )
+    #expect(store.selectedDockID == second.id)
+    #expect(store.displayLabel(for: renamedSecond) == "Studio Display — Not Connected")
+
+    store.reload(
+        profiles: refreshedProfiles,
+        activeProfileID: profileID,
+        displays: displays
+    )
+    #expect(store.selectedDockID == second.id)
+    #expect(store.displayLabel(for: renamedSecond) == "Studio Display (Main)")
 
     store.updateSelected(.magnification(9))
     #expect(store.selectedDock?.magnification == DockConfig.magnificationRange.upperBound)
@@ -418,6 +479,8 @@ func preferencesStoreSelectionAndUpdates() {
 
     store.perform(.importSystemDockApps(second.id))
     #expect(managementAction == .importSystemDockApps(second.id))
+    store.perform(.setDockDisplay(second.id, displayID))
+    #expect(managementAction == .setDockDisplay(second.id, displayID))
 
     let replacement = DockConfig(name: "Personal Dock")
     let personalProfile = DockProfile(name: "Personal", docks: [replacement])

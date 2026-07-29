@@ -25,6 +25,7 @@ enum DockManagementAction: Equatable {
     case renameDock(UUID)
     case duplicateDock(UUID)
     case deleteDock(UUID)
+    case setDockDisplay(UUID, UUID?)
     case importSystemDockApps(UUID)
     case resetDockSettings(UUID)
     case copyDockSettingsToAll(UUID)
@@ -60,6 +61,7 @@ extension DockConfig {
         case let .autoHideDelay(value):
             autoHideDelay = Self.clamp(value, to: Self.autoHideDelayRange)
         }
+        normalizeDisplayPlacementEdge()
     }
 }
 
@@ -68,6 +70,7 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var profiles: [DockProfile]
     @Published private(set) var activeProfileID: UUID
     @Published private(set) var docks: [DockConfig]
+    @Published private(set) var displays: [DockDisplayDescriptor]
     @Published var selectedDockID: UUID?
 
     private let onChange: (UUID, DockPreferenceChange) -> Void
@@ -76,6 +79,7 @@ final class DockPreferencesStore: ObservableObject {
     init(
         profiles: [DockProfile],
         activeProfileID: UUID,
+        displays: [DockDisplayDescriptor] = [],
         onChange: @escaping (UUID, DockPreferenceChange) -> Void,
         onManagementAction: @escaping (DockManagementAction) -> Void
     ) {
@@ -83,6 +87,7 @@ final class DockPreferencesStore: ObservableObject {
         self.activeProfileID = activeProfileID
         let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
         docks = activeDocks
+        self.displays = displays
         selectedDockID = activeDocks.first?.id
         self.onChange = onChange
         self.onManagementAction = onManagementAction
@@ -105,10 +110,17 @@ final class DockPreferencesStore: ObservableObject {
         selectedDockID != nil && docks.count > 1
     }
 
-    func reload(profiles: [DockProfile], activeProfileID: UUID) {
+    func reload(
+        profiles: [DockProfile],
+        activeProfileID: UUID,
+        displays: [DockDisplayDescriptor]? = nil
+    ) {
         let profileChanged = activeProfileID != self.activeProfileID
         self.profiles = profiles
         self.activeProfileID = activeProfileID
+        if let displays {
+            self.displays = displays
+        }
         let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
         docks = activeDocks
 
@@ -133,5 +145,21 @@ final class DockPreferencesStore: ObservableObject {
 
     func perform(_ action: DockManagementAction) {
         onManagementAction(action)
+    }
+
+    func isDisplayConnected(_ id: UUID) -> Bool {
+        displays.contains { $0.id == id }
+    }
+
+    func displayLabel(for dock: DockConfig) -> String {
+        guard let placement = dock.displayPlacement else { return "Automatic" }
+        if let display = displays.first(where: { $0.id == placement.displayID }) {
+            return displayLabel(for: display)
+        }
+        return "\(placement.displayName ?? "Display") — Not Connected"
+    }
+
+    func displayLabel(for display: DockDisplayDescriptor) -> String {
+        display.isPrimary ? "\(display.label) (Main)" : display.label
     }
 }

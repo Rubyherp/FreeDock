@@ -3,16 +3,10 @@ import OSLog
 import SwiftUI
 
 class DockPanel: NSPanel, NSWindowDelegate {
-    private enum DockEdge {
-        case left
-        case right
-        case top
-        case bottom
-    }
-
     let dockID: UUID
     var dockOrientation: Orientation = .horizontal
     var autoHideDelay: TimeInterval = 1
+    var allowedAutoHideEdges = Set(DockScreenEdge.allCases)
     var autoHideWhenDocked = true {
         didSet {
             guard oldValue != autoHideWhenDocked else { return }
@@ -21,20 +15,21 @@ class DockPanel: NSPanel, NSWindowDelegate {
             } else {
                 autoHideEdge = nil
                 cancelAutoHide()
+                shownFrame = nil
             }
         }
     }
     weak var dockDelegate: DockPanelDelegate?
     private weak var hostingView: NSView?
     private var hideWorkItem: DispatchWorkItem?
-    private var autoHideEdge: DockEdge?
+    private var autoHideEdge: DockScreenEdge?
     private var shownFrame: NSRect?
     private var isAutoHidden = false
     private var isUserMovingWindow = false
     private var moveCompletionWorkItem: DispatchWorkItem?
 
     private let edgeTolerance: CGFloat = 2
-    private let revealThickness: CGFloat = 6
+    private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
 
     /// The frame users expect to restore to, even while an edge-docked panel is hidden.
     var frameForPersistence: NSRect {
@@ -161,13 +156,12 @@ class DockPanel: NSPanel, NSWindowDelegate {
     }
 
     /// Prevent docks from landing off-screen (e.g., after monitor disconnect)
-    func clampToVisibleFrame() {
-        guard let screen = NSScreen.main else { return }
+    func clampToVisibleFrame(on preferredScreen: NSScreen? = nil) {
+        guard let screen = preferredScreen ?? activeScreen ?? NSScreen.screens.first else {
+            return
+        }
         let vf = screen.visibleFrame
-        var f = frame
-        f.origin.x = min(max(f.origin.x, vf.minX), vf.maxX - f.width)
-        f.origin.y = min(max(f.origin.y, vf.minY), vf.maxY - f.height)
-        setFrame(f, display: true)
+        setFrame(DockDisplayGeometry.clamped(frame, to: vf), display: true)
         updateAutoHideEdge()
     }
 
@@ -181,12 +175,12 @@ class DockPanel: NSPanel, NSWindowDelegate {
         let currentFrame = frame
         shownFrame = currentFrame
 
-        let candidates: [(DockEdge, CGFloat)] = [
+        let candidates: [(DockScreenEdge, CGFloat)] = [
             (.left, abs(currentFrame.minX - visibleFrame.minX)),
             (.right, abs(currentFrame.maxX - visibleFrame.maxX)),
             (.bottom, abs(currentFrame.minY - visibleFrame.minY)),
             (.top, abs(currentFrame.maxY - visibleFrame.maxY)),
-        ]
+        ].filter { allowedAutoHideEdges.contains($0.0) }
 
         autoHideEdge = candidates.min { $0.1 < $1.1 }.flatMap {
             $0.1 <= edgeTolerance ? $0.0 : nil
@@ -274,7 +268,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
         contentView as? DockContainerView
     }
 
-    private func revealEdge(for edge: DockEdge) -> DockRevealEdge {
+    private func revealEdge(for edge: DockScreenEdge) -> DockRevealEdge {
         switch edge {
         case .left: return .left
         case .right: return .right
@@ -290,7 +284,11 @@ class DockPanel: NSPanel, NSWindowDelegate {
             ?? NSScreen.main
     }
 
-    private func hiddenFrame(for frame: NSRect, at edge: DockEdge, in visibleFrame: NSRect) -> NSRect {
+    private func hiddenFrame(
+        for frame: NSRect,
+        at edge: DockScreenEdge,
+        in visibleFrame: NSRect
+    ) -> NSRect {
         var hidden = frame
 
         switch edge {

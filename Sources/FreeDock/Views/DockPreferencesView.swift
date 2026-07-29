@@ -129,9 +129,14 @@ struct DockPreferencesView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(dock.name)
                                 .lineLimit(1)
-                            Text(dock.orientation == .horizontal ? "Horizontal" : "Vertical")
+                                .truncationMode(.tail)
+                                .help(dock.name)
+                            Text(dockSubtitle(for: dock))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .help(dockSubtitle(for: dock))
                         }
                     } icon: {
                         Image(systemName: dock.orientation == .horizontal
@@ -345,9 +350,49 @@ struct DockPreferencesView: View {
                     }
 
                     settingsSection(
-                        title: "Behavior",
-                        symbol: "cursorarrow.motionlines"
+                        title: "Placement",
+                        symbol: "display.2"
                     ) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            settingRow("Display") {
+                                Picker(
+                                    "Display",
+                                    selection: displaySelectionBinding(for: dock)
+                                ) {
+                                    Text("Automatic").tag(UUID?.none)
+
+                                    ForEach(store.displays) { display in
+                                        Text(store.displayLabel(for: display))
+                                        .tag(Optional(display.id))
+                                    }
+
+                                    if let placement = dock.displayPlacement,
+                                       !store.isDisplayConnected(placement.displayID)
+                                    {
+                                        Label(
+                                            "\(placement.displayName ?? "Display") — Not Connected",
+                                            systemImage: "exclamationmark.triangle.fill"
+                                        )
+                                        .tag(Optional(placement.displayID))
+                                        .disabled(true)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(width: 250)
+                            }
+
+                            Text(displayHelpText(for: dock))
+                                .font(.caption)
+                                .foregroundStyle(
+                                    isPreferredDisplayUnavailable(for: dock)
+                                        ? Color.orange
+                                        : Color.secondary
+                                )
+                        }
+
+                        Divider()
+
                         settingRow("Orientation") {
                             Picker("Orientation", selection: orientationBinding) {
                                 Label("Horizontal", systemImage: "rectangle.split.3x1").tag(Orientation.horizontal)
@@ -357,9 +402,12 @@ struct DockPreferencesView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 250)
                         }
+                    }
 
-                        Divider()
-
+                    settingsSection(
+                        title: "Behavior",
+                        symbol: "cursorarrow.motionlines"
+                    ) {
                         settingRow("Auto-hide at screen edge") {
                             Toggle("", isOn: autoHideBinding)
                                 .labelsHidden()
@@ -518,6 +566,35 @@ struct DockPreferencesView: View {
             get: { store.selectedDock?.orientation ?? .horizontal },
             set: { store.updateSelected(.orientation($0)) }
         )
+    }
+
+    private func displaySelectionBinding(for dock: DockConfig) -> Binding<UUID?> {
+        Binding(
+            get: { store.selectedDock?.displayPlacement?.displayID },
+            set: { store.perform(.setDockDisplay(dock.id, $0)) }
+        )
+    }
+
+    private func isPreferredDisplayUnavailable(for dock: DockConfig) -> Bool {
+        guard let displayID = dock.displayPlacement?.displayID else { return false }
+        return !store.isDisplayConnected(displayID)
+    }
+
+    private func dockSubtitle(for dock: DockConfig) -> String {
+        let orientation = dock.orientation == .horizontal
+            ? "Horizontal"
+            : "Vertical"
+        return "\(orientation) · \(store.displayLabel(for: dock))"
+    }
+
+    private func displayHelpText(for dock: DockConfig) -> String {
+        if isPreferredDisplayUnavailable(for: dock) {
+            return "Temporarily shown on the main display. It will return when this display reconnects."
+        }
+        if dock.displayPlacement == nil {
+            return "Uses the display where this dock is currently positioned."
+        }
+        return "Keeps this dock on the selected display."
     }
 
     private var iconSizeBinding: Binding<Double> {

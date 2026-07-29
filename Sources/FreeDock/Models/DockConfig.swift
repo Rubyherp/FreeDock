@@ -44,6 +44,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     var name: String
     var position: CGPoint
+    var displayPlacement: DockDisplayPlacement?
     var orientation: Orientation
     var iconSize: Double
     var items: [DockItem]
@@ -60,6 +61,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
     var autoHideDelay: Double
 
     init(id: UUID = UUID(), name: String, position: CGPoint = .zero,
+         displayPlacement: DockDisplayPlacement? = nil,
          orientation: Orientation = .horizontal, iconSize: Double = 48,
          items: [DockItem] = [], autoHideWhenDocked: Bool = true,
          magnificationEnabled: Bool = true, magnification: Double = 1.30,
@@ -70,6 +72,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.position = position
+        self.displayPlacement = displayPlacement
         self.orientation = orientation
         self.iconSize = Self.clamp(iconSize, to: Self.iconSizeRange)
         self.items = items
@@ -84,6 +87,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         self.shadowStrength = Self.clamp(shadowStrength, to: Self.shadowStrengthRange)
         self.showRunningIndicators = showRunningIndicators
         self.autoHideDelay = Self.clamp(autoHideDelay, to: Self.autoHideDelayRange)
+        normalizeDisplayPlacementEdge()
     }
 
     static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
@@ -112,12 +116,21 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         showRunningIndicators = settings.showRunningIndicators
         autoHideWhenDocked = settings.autoHideWhenDocked
         autoHideDelay = Self.clamp(settings.autoHideDelay, to: Self.autoHideDelayRange)
+        normalizeDisplayPlacementEdge()
+    }
+
+    mutating func normalizeDisplayPlacementEdge() {
+        displayPlacement = displayPlacement?.respecting(
+            orientation: orientation,
+            autoHideWhenDocked: autoHideWhenDocked
+        )
     }
 
     func duplicated(name: String, position: CGPoint) -> DockConfig {
         DockConfig(
             name: name,
             position: position,
+            displayPlacement: displayPlacement,
             orientation: orientation,
             iconSize: iconSize,
             items: items.map { item in
@@ -143,6 +156,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         case id
         case name
         case position
+        case displayPlacement
         case orientation
         case iconSize
         case items
@@ -165,6 +179,10 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         position = try container.decode(CGPoint.self, forKey: .position)
+        displayPlacement = try? container.decode(
+            DockDisplayPlacement.self,
+            forKey: .displayPlacement
+        )
         orientation = try container.decode(Orientation.self, forKey: .orientation)
         iconSize = Self.clamp(
             try container.decode(Double.self, forKey: .iconSize),
@@ -200,5 +218,6 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
             try container.decodeIfPresent(Double.self, forKey: .autoHideDelay) ?? 1,
             to: Self.autoHideDelayRange
         )
+        normalizeDisplayPlacementEdge()
     }
 }

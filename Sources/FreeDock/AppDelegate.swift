@@ -17,6 +17,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuRefreshWorkItem: DispatchWorkItem?
     private var dockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
+    private var screenParametersWorkItem: DispatchWorkItem?
+    private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
+
+    private struct RuntimeDisplayState {
+        var effectiveDisplayID: UUID?
+        var isUsingFallback: Bool
+    }
 
     private struct IconSizeSelection {
         let dockID: UUID
@@ -46,8 +53,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
+        screenParametersWorkItem?.cancel()
         saveAllPositions()
         configManager.saveImmediately()
+    }
+
+    func applicationDidChangeScreenParameters(_: Notification) {
+        for panel in dockPanels.values {
+            panel.revealImmediately()
+        }
+        screenParametersWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.reconcileDisplayTopology()
+        }
+        screenParametersWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
     @objc func rebuildMenu() {
@@ -217,7 +237,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if preferencesStore == nil {
             let store = DockPreferencesStore(
                 profiles: configManager.config.profiles,
-                activeProfileID: configManager.config.activeProfileID
+                activeProfileID: configManager.config.activeProfileID,
+                displays: DockDisplayManager.connectedDisplays
             ) { [weak self] dockID, change in
                 self?.applyDockPreference(change, to: dockID)
             } onManagementAction: { [weak self] action in
@@ -234,7 +255,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshPreferencesSnapshot() {
         preferencesStore?.reload(
             profiles: configManager.config.profiles,
-            activeProfileID: configManager.config.activeProfileID
+            activeProfileID: configManager.config.activeProfileID,
+            displays: DockDisplayManager.connectedDisplays
         )
     }
 
@@ -256,6 +278,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             duplicateDock(dockID)
         case let .deleteDock(dockID):
             confirmAndDeleteDock(dockID)
+        case let .setDockDisplay(dockID, displayID):
+            setPreferredDisplay(displayID, for: dockID)
         case let .importSystemDockApps(dockID):
             confirmAndImportSystemDockApps(into: dockID)
         case let .resetDockSettings(dockID):
@@ -278,11 +302,375 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
+    private func setPreferredDisplay(_ displayID: UUID?, for dockID: UUID) {
+        guard let index = configManager.config.docks.firstIndex(where: { $0.id == dockID }) else {
+            return
+        }
+
+        var dock = configManager.config.docks[index]
+        if displayID == nil {
+            dock.displayPlacement = nil
+            if let panel = dockPanels[dockID] {
+                let frame = panel.frameForPersistence
+                dock.position = frame.origin
+                let descriptor = DockDisplayGeometry.bestDisplay(
+                    for: frame,
+                    among: DockDisplayManager.connectedDisplays
+                )
+                runtimeDisplayStates[dockID] = RuntimeDisplayState(
+                    effectiveDisplayID: descriptor?.id,
+                    isUsingFallback: false
+                )
+            }
+            configManager.config.docks[index] = dock
+            preferencesStore?.replaceDock(dock)
+            configManager.save()
+            refreshPreferencesSnapshot()
+            return
+        }
+
+        guard let displayID,
+              let targetScreen = DockDisplayManager.screen(withID: displayID),
+              let targetDisplay = DockDisplayManager.descriptor(for: targetScreen)
+        else {
+            return
+        }
+
+        let existingPlacement = dock.displayPlacement
+        let panel = dockPanels[dockID]
+        let currentFrame = panel?.frameForPersistence
+        let currentDisplay = currentFrame.flatMap {
+            DockDisplayGeometry.bestDisplay(
+                for: $0,
+                among: DockDisplayManager.connectedDisplays
+            )
+        }
+        let normalizedCenter = if let currentFrame, let currentDisplay {
+            DockDisplayGeometry.normalizedCenter(
+                of: currentFrame,
+                in: currentDisplay.visibleFrame
+            )
+        } else {
+            existingPlacement?.normalizedCenter ?? CGPoint(x: 0.5, y: 0.5)
+        }
+        let edge: DockScreenEdge? = if dock.autoHideWhenDocked,
+                                      let currentFrame,
+                                      let currentDisplay
+        {
+            DockDisplayGeometry.nearestEdge(
+                of: currentFrame,
+                in: currentDisplay.visibleFrame,
+                orientation: dock.orientation
+            )
+        } else {
+            dock.autoHideWhenDocked ? existingPlacement?.edge : nil
+        }
+
+        dock.displayPlacement = DockDisplayPlacement(
+            displayID: displayID,
+            displayName: targetDisplay.label,
+            normalizedCenter: normalizedCenter,
+            edge: edge
+        )
+        configManager.config.docks[index] = dock
+
+        if let panel {
+            placePanel(
+                panel,
+                using: dock,
+                on: targetScreen,
+                display: targetDisplay,
+                isFallback: false,
+                animate: true
+            )
+            _ = mirrorPanelPosition(panel, on: targetDisplay)
+            dock = configManager.config.docks[index]
+        }
+
+        preferencesStore?.replaceDock(dock)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func reconcileDisplayTopology() {
+        TooltipManager.shared.hide()
+        let docks = configManager.config.docks
+        var configChanged = false
+
+        for dock in docks {
+            guard let panel = dockPanels[dock.id],
+                  let resolution = displayResolution(for: dock, panelFrame: panel.frameForPersistence)
+            else {
+                continue
+            }
+
+            placePanel(
+                panel,
+                using: dock,
+                on: resolution.screen,
+                display: resolution.display,
+                isFallback: resolution.isFallback,
+                animate: false
+            )
+            if !resolution.isFallback {
+                configChanged = mirrorPanelPosition(
+                    panel,
+                    on: resolution.display
+                ) || configChanged
+            }
+        }
+
+        if configChanged {
+            configManager.save()
+        }
+        refreshPreferencesSnapshot()
+    }
+
+    private func displayResolution(
+        for dock: DockConfig,
+        panelFrame: CGRect
+    ) -> (screen: NSScreen, display: DockDisplayDescriptor, isFallback: Bool)? {
+        guard let resolution = DockDisplayGeometry.resolveDisplay(
+            for: dock.displayPlacement,
+            panelFrame: panelFrame,
+            among: DockDisplayManager.connectedDisplays
+        ),
+        let screen = DockDisplayManager.screen(withID: resolution.display.id)
+        else {
+            return nil
+        }
+        return (screen, resolution.display, resolution.isFallback)
+    }
+
+    private func placePanel(
+        _ panel: DockPanel,
+        using dock: DockConfig,
+        on screen: NSScreen,
+        display: DockDisplayDescriptor,
+        isFallback: Bool,
+        animate: Bool
+    ) {
+        panel.revealImmediately()
+
+        var targetFrame: CGRect
+        let placement = dock.displayPlacement?.respecting(
+            orientation: dock.orientation,
+            autoHideWhenDocked: dock.autoHideWhenDocked
+        )
+        if var placement {
+            let preferredEdge = placement.edge
+            placement.edge = nil
+            targetFrame = DockDisplayGeometry.frame(
+                size: panel.frame.size,
+                placement: placement,
+                in: display.visibleFrame
+            )
+
+            if dock.autoHideWhenDocked {
+                let exposedEdges = DockDisplayGeometry.exposedEdges(
+                    for: targetFrame,
+                    on: display,
+                    among: DockDisplayManager.connectedDisplays
+                )
+                let edge = if let preferredEdge,
+                              exposedEdges.contains(preferredEdge)
+                {
+                    preferredEdge
+                } else {
+                    DockDisplayGeometry.preferredDockingEdge(
+                        of: targetFrame,
+                        on: display,
+                        among: DockDisplayManager.connectedDisplays,
+                        orientation: dock.orientation
+                    )
+                }
+                if let edge {
+                    targetFrame = DockDisplayGeometry.dockedFrame(
+                        targetFrame,
+                        at: edge,
+                        in: display.visibleFrame
+                    )
+                }
+            }
+        } else {
+            targetFrame = panel.frameForPersistence
+            targetFrame.origin = dock.position
+            targetFrame = DockDisplayGeometry.clamped(
+                targetFrame,
+                to: display.visibleFrame
+            )
+        }
+
+        if dock.autoHideWhenDocked, placement == nil {
+            targetFrame = frameDockedToNearestEdge(
+                targetFrame,
+                orientation: dock.orientation,
+                on: screen
+            )
+        }
+
+        panel.setFrame(targetFrame, display: true, animate: animate)
+        runtimeDisplayStates[dock.id] = RuntimeDisplayState(
+            effectiveDisplayID: display.id,
+            isUsingFallback: isFallback
+        )
+
+        if animate {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.35
+            ) { [weak self, weak panel] in
+                guard let self, let panel else { return }
+                self.updateAutoHideGeometry(for: panel, on: display)
+                if dock.autoHideWhenDocked {
+                    panel.scheduleAutoHide()
+                }
+            }
+        } else {
+            updateAutoHideGeometry(for: panel, on: display)
+            if dock.autoHideWhenDocked {
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + 0.12
+                ) { [weak panel] in
+                    panel?.scheduleAutoHide()
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func mirrorPanelPosition(
+        _ panel: DockPanel,
+        on display: DockDisplayDescriptor
+    ) -> Bool {
+        guard runtimeDisplayStates[panel.dockID]?.isUsingFallback != true,
+              let index = configManager.config.docks.firstIndex(where: {
+                  $0.id == panel.dockID
+              })
+        else {
+            return false
+        }
+
+        var dock = configManager.config.docks[index]
+        dock.position = panel.frameForPersistence.origin
+        if var placement = dock.displayPlacement,
+           placement.displayID == display.id
+        {
+            placement.displayName = display.label
+            dock.displayPlacement = placement
+        }
+
+        guard dock != configManager.config.docks[index] else { return false }
+        configManager.config.docks[index] = dock
+        preferencesStore?.replaceDock(dock)
+        return true
+    }
+
+    @discardableResult
+    private func persistPanelPlacement(
+        _ panel: DockPanel,
+        userInitiated: Bool
+    ) -> Bool {
+        guard let index = configManager.config.docks.firstIndex(where: {
+            $0.id == panel.dockID
+        }) else {
+            return false
+        }
+
+        let runtimeState = runtimeDisplayStates[panel.dockID]
+        if runtimeState?.isUsingFallback == true, !userInitiated {
+            return false
+        }
+
+        let frame = panel.frameForPersistence
+        guard let display = DockDisplayGeometry.bestDisplay(
+            for: frame,
+            among: DockDisplayManager.connectedDisplays
+        ) else {
+            return false
+        }
+
+        var dock = configManager.config.docks[index]
+        if let placement = dock.displayPlacement,
+           !userInitiated,
+           placement.displayID != display.id
+        {
+            return false
+        }
+
+        dock.position = frame.origin
+        if dock.displayPlacement != nil {
+            dock.displayPlacement = DockDisplayPlacement(
+                displayID: display.id,
+                displayName: display.label,
+                normalizedCenter: DockDisplayGeometry.normalizedCenter(
+                    of: frame,
+                    in: display.visibleFrame
+                ),
+                edge: dock.autoHideWhenDocked
+                    ? DockDisplayGeometry.nearestEdge(
+                        of: frame,
+                        in: display.visibleFrame,
+                        orientation: dock.orientation
+                    )
+                    : nil
+            )
+        }
+
+        guard dock != configManager.config.docks[index] else { return false }
+        configManager.config.docks[index] = dock
+        preferencesStore?.replaceDock(dock)
+        runtimeDisplayStates[panel.dockID] = RuntimeDisplayState(
+            effectiveDisplayID: display.id,
+            isUsingFallback: false
+        )
+        return true
+    }
+
+    private func effectiveScreen(for panel: DockPanel) -> NSScreen? {
+        if let displayID = runtimeDisplayStates[panel.dockID]?.effectiveDisplayID,
+           let screen = DockDisplayManager.screen(withID: displayID)
+        {
+            return screen
+        }
+        return DockDisplayManager.screen(containing: panel.frameForPersistence)
+    }
+
+    private func updateAutoHideGeometry(
+        for panel: DockPanel,
+        on preferredDisplay: DockDisplayDescriptor? = nil
+    ) {
+        let displays = DockDisplayManager.connectedDisplays
+        let display = preferredDisplay ?? DockDisplayGeometry.bestDisplay(
+            for: panel.frameForPersistence,
+            among: displays
+        )
+        guard let display else {
+            panel.allowedAutoHideEdges = []
+            panel.updateAutoHideEdge()
+            return
+        }
+
+        panel.allowedAutoHideEdges = Set(
+            DockDisplayGeometry.exposedEdges(
+                for: panel.frameForPersistence,
+                on: display,
+                among: displays
+            ).filter {
+                $0.isCompatible(with: panel.dockOrientation)
+            }
+        )
+        panel.updateAutoHideEdge()
+    }
+
     private let snapDistance: CGFloat = 15
 
-    private func snapFrame(_ frame: NSRect) -> NSRect {
-        let center = NSPoint(x: frame.midX, y: frame.midY)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main else { return frame }
+    private func snapFrame(
+        _ frame: NSRect,
+        on preferredScreen: NSScreen? = nil
+    ) -> NSRect {
+        guard let screen = preferredScreen ?? DockDisplayManager.screen(containing: frame) else {
+            return frame
+        }
 
         let visible = screen.visibleFrame
         var snapped = frame
@@ -306,30 +694,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return snapped
     }
 
-    private func frameDockedToNearestEdge(_ frame: NSRect, orientation: Orientation) -> NSRect {
-        let center = NSPoint(x: frame.midX, y: frame.midY)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? NSScreen.main else { return frame }
-
-        let visible = screen.visibleFrame
-        var docked = frame
-
-        if orientation == .horizontal {
-            let distanceToBottom = abs(frame.minY - visible.minY)
-            let distanceToTop = abs(frame.maxY - visible.maxY)
-            docked.origin.y = distanceToBottom <= distanceToTop
-                ? visible.minY
-                : visible.maxY - frame.height
-            docked.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
-        } else {
-            let distanceToLeft = abs(frame.minX - visible.minX)
-            let distanceToRight = abs(frame.maxX - visible.maxX)
-            docked.origin.x = distanceToLeft <= distanceToRight
-                ? visible.minX
-                : visible.maxX - frame.width
-            docked.origin.y = min(max(frame.origin.y, visible.minY), visible.maxY - frame.height)
+    private func frameDockedToNearestEdge(
+        _ frame: NSRect,
+        orientation: Orientation,
+        on preferredScreen: NSScreen? = nil
+    ) -> NSRect {
+        guard let screen = preferredScreen
+                ?? DockDisplayManager.screen(containing: frame),
+              let display = DockDisplayManager.descriptor(for: screen)
+        else {
+            return frame
         }
 
-        return docked
+        guard let edge = DockDisplayGeometry.preferredDockingEdge(
+            of: frame,
+            on: display,
+            among: DockDisplayManager.connectedDisplays,
+            orientation: orientation
+        ) else {
+            return DockDisplayGeometry.clamped(
+                frame,
+                to: display.visibleFrame
+            )
+        }
+
+        return DockDisplayGeometry.dockedFrame(
+            frame,
+            at: edge,
+            in: display.visibleFrame
+        )
     }
 
     @objc private func switchProfile(_ sender: NSMenuItem) {
@@ -387,9 +780,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         saveAllPositions()
         closeAllDockPanels()
 
+        let placement = defaultDockPlacement
         let starterDock = DockConfig(
             name: "Dock 1",
-            position: defaultDockPosition,
+            position: placement.position,
+            displayPlacement: placement.displayPlacement,
             orientation: .horizontal,
             autoHideWhenDocked: false
         )
@@ -519,16 +914,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         createDock(orientation: .vertical)
     }
 
-    private var defaultDockPosition: CGPoint {
-        let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+    private var defaultDockPlacement: (
+        position: CGPoint,
+        displayPlacement: DockDisplayPlacement?
+    ) {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: {
+            $0.frame.contains(mouseLocation)
+        }) ?? DockDisplayManager.primaryScreen
+        let visibleFrame = screen?.visibleFrame
             ?? NSRect(x: 100, y: 100, width: 1200, height: 800)
-        return CGPoint(x: visibleFrame.midX - 150, y: visibleFrame.midY - 30)
+        let position = CGPoint(
+            x: visibleFrame.midX - 150,
+            y: visibleFrame.midY - 30
+        )
+        let displayPlacement = screen
+            .flatMap(DockDisplayManager.descriptor(for:))
+            .map {
+                DockDisplayPlacement(
+                    displayID: $0.id,
+                    displayName: $0.label
+                )
+            }
+        return (position, displayPlacement)
     }
 
     private func createDock(orientation: Orientation) {
+        let placement = defaultDockPlacement
         let dock = DockConfig(
             name: suggestedDockName(),
-            position: defaultDockPosition,
+            position: placement.position,
+            displayPlacement: placement.displayPlacement,
             orientation: orientation
         )
         configManager.config.docks.append(dock)
@@ -564,7 +980,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createInitialSeededDock() {
-        let dock = DockConfig(name: "Dock 1", position: defaultDockPosition, orientation: .horizontal, items: seededDockItems())
+        let placement = defaultDockPlacement
+        let dock = DockConfig(
+            name: "Dock 1",
+            position: placement.position,
+            displayPlacement: placement.displayPlacement,
+            orientation: .horizontal,
+            items: seededDockItems()
+        )
         configManager.config.docks.append(dock)
         showDock(dock)
         configManager.save()
@@ -593,6 +1016,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.tearDown()
             dockPanels.removeValue(forKey: id)
             dockStates.removeValue(forKey: id)
+            runtimeDisplayStates.removeValue(forKey: id)
         } else if let config = configManager.config.docks.first(where: { $0.id == id }) {
             showDock(config)
         }
@@ -627,6 +1051,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dockPanels[id]?.tearDown()
         dockPanels.removeValue(forKey: id)
         dockStates.removeValue(forKey: id)
+        runtimeDisplayStates.removeValue(forKey: id)
         configManager.config.docks.removeAll(where: { $0.id == id })
         configManager.save()
         rebuildMenu()
@@ -662,18 +1087,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         else { return }
 
         panel.revealImmediately()
+        let screen = effectiveScreen(for: panel)
         let dockedFrame = frameDockedToNearestEdge(
             panel.frameForPersistence,
-            orientation: configManager.config.docks[index].orientation
+            orientation: configManager.config.docks[index].orientation,
+            on: screen
         )
         panel.setFrame(dockedFrame, display: true, animate: true)
-        configManager.config.docks[index].position = dockedFrame.origin
+        _ = persistPanelPlacement(panel, userInitiated: false)
         configManager.save()
         refreshPreferencesSnapshot()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
-            panel?.updateAutoHideEdge()
-            panel?.scheduleAutoHide()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.updateAutoHideGeometry(for: panel)
+            panel.scheduleAutoHide()
         }
     }
 
@@ -748,10 +1177,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             duplicatedPosition.y -= 32
         }
 
-        let duplicate = source.duplicated(
+        var duplicate = source.duplicated(
             name: suggestedDuplicateName(for: source.name),
             position: duplicatedPosition
         )
+        if let placement = duplicate.displayPlacement,
+           let resolution = DockDisplayGeometry.resolveDisplay(
+               for: placement,
+               panelFrame: dockPanels[id]?.frameForPersistence
+                   ?? CGRect(origin: source.position, size: .zero),
+               among: DockDisplayManager.connectedDisplays
+           )
+        {
+            let delta = source.orientation == .horizontal
+                ? CGPoint(x: 32, y: 0)
+                : CGPoint(x: 0, y: -32)
+            duplicate.displayPlacement = DockDisplayGeometry.offset(
+                placement,
+                by: delta,
+                in: resolution.display.visibleFrame
+            )
+        }
 
         configManager.config.docks.insert(duplicate, at: sourceIndex + 1)
         showDock(duplicate)
@@ -996,16 +1442,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.resizeToFitContent()
 
             if self.pendingAutoHideUpdates[dockID] == nil {
-                panel.updateAutoHideEdge()
+                self.updateAutoHideGeometry(for: panel)
                 if panel.autoHideWhenDocked {
                     panel.scheduleAutoHide()
                 }
             }
 
-            if let index = self.configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
-                self.configManager.config.docks[index].position = panel.frameForPersistence.origin
-                self.configManager.save()
-            }
+            _ = self.persistPanelPlacement(panel, userInitiated: false)
+            self.configManager.save()
             self.dockResizeWorkItems.removeValue(forKey: dockID)
 
             if let pending = self.pendingAutoHideUpdates.removeValue(forKey: dockID) {
@@ -1027,22 +1471,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ) {
         guard let panel = dockPanels[dockID] else { return }
 
+        if !enabled {
+            panel.revealImmediately()
+        }
         panel.autoHideWhenDocked = enabled
-        guard enabled else { return }
-
-        panel.revealImmediately()
-        let dockedFrame = frameDockedToNearestEdge(
-            panel.frameForPersistence,
-            orientation: orientation
-        )
-        panel.setFrame(dockedFrame, display: true, animate: true)
-        if let index = configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
-            configManager.config.docks[index].position = dockedFrame.origin
+        guard enabled else {
+            _ = persistPanelPlacement(panel, userInitiated: false)
+            configManager.save()
+            return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak panel] in
-            panel?.updateAutoHideEdge()
-            panel?.scheduleAutoHide()
+        panel.revealImmediately()
+        let screen = effectiveScreen(for: panel)
+        let dockedFrame = frameDockedToNearestEdge(
+            panel.frameForPersistence,
+            orientation: orientation,
+            on: screen
+        )
+        panel.setFrame(dockedFrame, display: true, animate: true)
+        _ = persistPanelPlacement(panel, userInitiated: false)
+        configManager.save()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.updateAutoHideGeometry(for: panel)
+            panel.scheduleAutoHide()
         }
     }
 
@@ -1052,17 +1506,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dockResizeWorkItems[dockID]?.cancel()
         dockResizeWorkItems.removeValue(forKey: dockID)
         pendingAutoHideUpdates.removeValue(forKey: dockID)
-        let visibleOrigin = panel.frameForPersistence.origin
+        _ = persistPanelPlacement(panel, userInitiated: false)
         panel.revealImmediately()
         panel.tearDown()
         dockPanels.removeValue(forKey: dockID)
         dockStates.removeValue(forKey: dockID)
+        runtimeDisplayStates.removeValue(forKey: dockID)
 
-        var rebuiltConfig = config
-        rebuiltConfig.position = visibleOrigin
-        if let index = configManager.config.docks.firstIndex(where: { $0.id == dockID }) {
-            configManager.config.docks[index].position = visibleOrigin
-        }
+        let rebuiltConfig = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) ?? config
         showDock(rebuiltConfig)
     }
 
@@ -1070,7 +1523,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let rect = NSRect(origin: config.position,
                           size: NSSize(width: 400, height: 70))
         let panel = DockPanel(dockID: config.id, contentRect: rect)
-        panel.clampToVisibleFrame()
 
         let dockID = config.id
         let state = DockState(config: config)
@@ -1088,8 +1540,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             orientation: config.orientation,
             state: state,
             onItemsChanged: { _ in
-                self.configManager.save()
-                DispatchQueue.main.async { panel.resizeToFitContent() }
+                DispatchQueue.main.async { [weak self] in
+                    self?.scheduleDockResize(dockID)
+                }
             },
             onAppLaunch: { item in NSWorkspace.shared.open(URL(fileURLWithPath: item.appPath)) }
         )
@@ -1100,22 +1553,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setContentView(content)
         panel.dockDelegate = self
         panel.isMovableByWindowBackground = !_lockPositions
+        dockPanels[config.id] = panel
+
+        if let resolution = displayResolution(
+            for: config,
+            panelFrame: panel.frameForPersistence
+        ) {
+            placePanel(
+                panel,
+                using: config,
+                on: resolution.screen,
+                display: resolution.display,
+                isFallback: resolution.isFallback,
+                animate: false
+            )
+            if !resolution.isFallback {
+                _ = mirrorPanelPosition(panel, on: resolution.display)
+            }
+        } else {
+            panel.clampToVisibleFrame(on: DockDisplayManager.primaryScreen)
+        }
+
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
-        panel.clampToVisibleFrame()
-
-        if config.autoHideWhenDocked {
-            let dockedFrame = frameDockedToNearestEdge(panel.frame, orientation: config.orientation)
-            panel.setFrame(dockedFrame, display: true)
-            if let index = configManager.config.docks.firstIndex(where: { $0.id == config.id }) {
-                configManager.config.docks[index].position = dockedFrame.origin
-            }
-            panel.updateAutoHideEdge()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak panel] in
-                panel?.scheduleAutoHide()
-            }
-        }
-        dockPanels[config.id] = panel
+        configManager.save()
     }
 
     private func restoreDocks() {
@@ -1125,9 +1586,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func saveAllPositions() {
-        for (id, panel) in dockPanels {
-            guard let idx = configManager.config.docks.firstIndex(where: { $0.id == id }) else { continue }
-            configManager.config.docks[idx].position = panel.frameForPersistence.origin
+        for panel in dockPanels.values {
+            guard let display = DockDisplayGeometry.bestDisplay(
+                for: panel.frameForPersistence,
+                among: DockDisplayManager.connectedDisplays
+            ) else {
+                continue
+            }
+            _ = mirrorPanelPosition(panel, on: display)
         }
     }
 
@@ -1143,6 +1609,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dockPanels.removeAll()
         dockStates.removeAll()
+        runtimeDisplayStates.removeAll()
     }
 }
 
@@ -1153,20 +1620,33 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidMove(_ panel: DockPanel) {
+        let screen = DockDisplayManager.screen(containing: panel.frame)
         let snapped = panel.autoHideWhenDocked
-            ? frameDockedToNearestEdge(panel.frame, orientation: panel.dockOrientation)
-            : snapFrame(panel.frame)
+            ? frameDockedToNearestEdge(
+                panel.frame,
+                orientation: panel.dockOrientation,
+                on: screen
+            )
+            : snapFrame(panel.frame, on: screen)
 
         if snapped.origin != panel.frame.origin {
             panel.setFrame(snapped, display: true, animate: true)
         }
 
-        panel.updateAutoHideEdge()
-
-        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
-
-        configManager.config.docks[idx].position = snapped.origin
+        if let screen,
+           let display = DockDisplayManager.descriptor(for: screen)
+        {
+            runtimeDisplayStates[panel.dockID] = RuntimeDisplayState(
+                effectiveDisplayID: display.id,
+                isUsingFallback: false
+            )
+            updateAutoHideGeometry(for: panel, on: display)
+        } else {
+            updateAutoHideGeometry(for: panel)
+        }
+        _ = persistPanelPlacement(panel, userInitiated: true)
         configManager.save()
+        refreshPreferencesSnapshot()
     }
 
     func currentIconSize(for panel: DockPanel) -> Double {
@@ -1178,14 +1658,15 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidFinishResize(_ panel: DockPanel) {
-        guard let idx = configManager.config.docks.firstIndex(where: { $0.id == panel.dockID }) else { return }
-
-        let snapped = snapFrame(panel.frame)
+        let snapped = snapFrame(
+            panel.frame,
+            on: effectiveScreen(for: panel)
+        )
         if snapped.origin != panel.frame.origin {
             panel.setFrame(snapped, display: true, animate: true)
         }
-        panel.updateAutoHideEdge()
-        configManager.config.docks[idx].position = panel.frameForPersistence.origin
+        updateAutoHideGeometry(for: panel)
+        _ = persistPanelPlacement(panel, userInitiated: false)
         configManager.save()
         refreshPreferencesSnapshot()
         scheduleMenuRefresh()
