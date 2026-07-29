@@ -285,6 +285,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             setPreferredDisplay(displayID, for: dockID)
         case let .addDockItems(dockID):
             chooseDockItems(for: dockID)
+        case let .addSmartStack(dockID, source):
+            addSmartStack(source, to: dockID)
+        case .clearRecentFiles:
+            confirmAndClearRecentFiles()
         case let .importSystemDockApps(dockID):
             confirmAndImportSystemDockApps(into: dockID)
         case let .resetDockSettings(dockID):
@@ -1264,6 +1268,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func addSmartStack(
+        _ source: SmartStackSource,
+        to dockID: UUID
+    ) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) else {
+            return
+        }
+
+        let plan = DockItemPlanner.planAdding(
+            smartStack: source,
+            to: dock.items
+        )
+        guard plan.addedCount > 0 else {
+            NSSound.beep()
+            return
+        }
+        replaceDockItems(plan.items, for: dockID)
+    }
+
     private func replaceDockItems(
         _ items: [DockItem],
         for dockID: UUID,
@@ -1320,6 +1345,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 item: item,
                 sourceRect: sourceRect,
                 sourceDock: panel,
+                recentFiles: configManager.config.recentFiles,
+                onOpenURL: { [weak self] url in
+                    self?.openThroughFreeDock(url)
+                },
+                onClearRecentFiles: { [weak self] in
+                    self?.confirmAndClearRecentFiles()
+                },
                 onOptionsChanged: { [weak self] options in
                     self?.updateFolderStackOptions(
                         options,
@@ -1347,7 +1379,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSSound.beep()
             return
         }
-        NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+        openThroughFreeDock(
+            URL(fileURLWithPath: item.path),
+            knownKind: item.kind
+        )
+    }
+
+    private func openThroughFreeDock(
+        _ url: URL,
+        knownKind: DockItemKind? = nil
+    ) {
+        guard url.isFileURL,
+              FileManager.default.fileExists(atPath: url.path)
+        else {
+            NSSound.beep()
+            return
+        }
+
+        guard NSWorkspace.shared.open(url) else {
+            NSSound.beep()
+            return
+        }
+
+        let resolvedKind = knownKind ?? DockItem.pinnedItem(at: url)?.kind
+        guard resolvedKind == .document else { return }
+
+        let plan = RecentFileHistoryPlanner.planRecording(
+            url: url,
+            displayName: FileManager.default.displayName(atPath: url.path),
+            records: configManager.config.recentFiles
+        )
+        guard plan.didRecord else { return }
+        configManager.config.recentFiles = plan.records
+        configManager.save()
     }
 
     private func updateFolderStackOptions(
@@ -1383,6 +1447,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         folderStackController = nil
         controller.close()
+    }
+
+    private func confirmAndClearRecentFiles() {
+        guard !configManager.config.recentFiles.isEmpty else {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = "No Recent Files"
+            alert.informativeText = "Open a document through FreeDock and it will appear in the Recent Files stack."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Clear Recent Files history?"
+        alert.informativeText = "This clears FreeDock’s local history only. Your documents will not be deleted or changed."
+        alert.addButton(withTitle: "Cancel")
+        let clearButton = alert.addButton(withTitle: "Clear History")
+        clearButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        closeFolderStack()
+        configManager.config.recentFiles.removeAll()
+        configManager.save()
     }
 
     private func confirmAndImportSystemDockApps(into id: UUID) {
@@ -1728,6 +1818,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onAddItemsRequested: { [weak self] in
                 self?.chooseDockItems(for: dockID)
+            },
+            onAddSmartStackRequested: { [weak self] source in
+                self?.addSmartStack(source, to: dockID)
             }
         )
 

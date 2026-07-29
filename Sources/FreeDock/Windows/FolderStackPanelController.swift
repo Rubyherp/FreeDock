@@ -7,9 +7,12 @@ final class FolderStackPanelController: NSObject, NSWindowDelegate {
     let itemID: UUID
 
     private let item: DockItem
+    private let recentFiles: [RecentFileRecord]
     private var sourceRect: CGRect
     private weak var sourceDock: DockPanel?
     private let panel: FolderStackPanel
+    private let onOpenURL: (URL) -> Void
+    private let onClearRecentFiles: () -> Void
     private let onOptionsChanged: (FolderStackOptions) -> Void
     private let onDidClose: () -> Void
     private var autoHideToken: UUID?
@@ -22,14 +25,20 @@ final class FolderStackPanelController: NSObject, NSWindowDelegate {
         item: DockItem,
         sourceRect: CGRect,
         sourceDock: DockPanel,
+        recentFiles: [RecentFileRecord],
+        onOpenURL: @escaping (URL) -> Void,
+        onClearRecentFiles: @escaping () -> Void,
         onOptionsChanged: @escaping (FolderStackOptions) -> Void,
         onDidClose: @escaping () -> Void
     ) {
         self.dockID = dockID
         itemID = item.id
         self.item = item
+        self.recentFiles = recentFiles
         self.sourceRect = sourceRect
         self.sourceDock = sourceDock
+        self.onOpenURL = onOpenURL
+        self.onClearRecentFiles = onClearRecentFiles
         self.onOptionsChanged = onOptionsChanged
         self.onDidClose = onDidClose
         panel = FolderStackPanel(
@@ -133,13 +142,13 @@ final class FolderStackPanelController: NSObject, NSWindowDelegate {
     private var stackView: some View {
         FolderStackView(
             item: item,
+            presentation: DockItemPresentation.resolve(item),
+            recentFiles: recentFiles,
             onOpenURL: { [weak self] url in
-                self?.open(url)
+                self?.requestOpen(url)
             },
-            onOpenFolder: { [weak self] in
-                guard let self else { return }
-                self.open(URL(fileURLWithPath: self.item.path, isDirectory: true))
-            },
+            onOpenContainer: openContainerAction,
+            onClearRecentFiles: clearRecentFilesAction,
             onOptionsChanged: { [weak self] options in
                 self?.onOptionsChanged(options)
             },
@@ -149,9 +158,57 @@ final class FolderStackPanelController: NSObject, NSWindowDelegate {
         )
     }
 
-    private func open(_ url: URL) {
+    private var openContainerAction: (() -> Void)? {
+        guard containerURL != nil else { return nil }
+        return { [weak self] in
+            self?.requestOpenContainer()
+        }
+    }
+
+    private var clearRecentFilesAction: (() -> Void)? {
+        guard item.smartStackSource == .recentFiles else { return nil }
+        return { [weak self] in
+            self?.requestClearRecentFiles()
+        }
+    }
+
+    private var containerURL: URL? {
+        let candidate: URL?
+        switch item.smartStackSource {
+        case .recentFiles:
+            candidate = nil
+        case .downloads:
+            candidate = FileManager.default.urls(
+                for: .downloadsDirectory,
+                in: .userDomainMask
+            ).first?.standardizedFileURL
+        case nil:
+            candidate = item.fileURL
+        }
+
+        guard let candidate,
+              FileManager.default.fileExists(atPath: candidate.path)
+        else {
+            return nil
+        }
+        return candidate
+    }
+
+    private func requestOpenContainer() {
+        guard let containerURL else { return }
+        requestOpen(containerURL)
+    }
+
+    private func requestOpen(_ url: URL) {
+        let action = onOpenURL
         close()
-        NSWorkspace.shared.open(url)
+        action(url)
+    }
+
+    private func requestClearRecentFiles() {
+        let action = onClearRecentFiles
+        close()
+        action()
     }
 
     private func installEventMonitors() {

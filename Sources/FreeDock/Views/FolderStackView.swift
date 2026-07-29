@@ -3,8 +3,11 @@ import SwiftUI
 
 struct FolderStackView: View {
     let item: DockItem
+    let presentation: DockItemPresentation
+    let recentFiles: [RecentFileRecord]
     let onOpenURL: (URL) -> Void
-    let onOpenFolder: () -> Void
+    let onOpenContainer: (() -> Void)?
+    let onClearRecentFiles: (() -> Void)?
     let onOptionsChanged: (FolderStackOptions) -> Void
     let onClose: () -> Void
 
@@ -18,26 +21,31 @@ struct FolderStackView: View {
 
     init(
         item: DockItem,
+        presentation: DockItemPresentation,
+        recentFiles: [RecentFileRecord],
         onOpenURL: @escaping (URL) -> Void,
-        onOpenFolder: @escaping () -> Void,
+        onOpenContainer: (() -> Void)?,
+        onClearRecentFiles: (() -> Void)?,
         onOptionsChanged: @escaping (FolderStackOptions) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.item = item
+        self.presentation = presentation
+        self.recentFiles = recentFiles
         self.onOpenURL = onOpenURL
-        self.onOpenFolder = onOpenFolder
+        self.onOpenContainer = onOpenContainer
+        self.onClearRecentFiles = onClearRecentFiles
         self.onOptionsChanged = onOptionsChanged
         self.onClose = onClose
-        _options = State(initialValue: item.folderOptions ?? FolderStackOptions())
-    }
-
-    private var folderURL: URL {
-        URL(fileURLWithPath: item.path, isDirectory: true)
+        _options = State(initialValue: Self.normalizedOptions(for: item))
     }
 
     private var loadKey: LoadKey {
         LoadKey(
+            itemID: item.id,
             path: item.path,
+            source: item.smartStackSource,
+            recentFiles: recentFiles,
             options: options,
             reloadID: reloadID
         )
@@ -59,8 +67,10 @@ struct FolderStackView: View {
                 Divider().opacity(0.55)
                 content(layout: layout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider().opacity(0.55)
-                footer(layout: layout)
+                if showsFooter {
+                    Divider().opacity(0.55)
+                    footer(layout: layout)
+                }
             }
             .background(stackBackground)
             .clipShape(
@@ -90,23 +100,33 @@ struct FolderStackView: View {
         .onChange(of: options) { updated in
             onOptionsChanged(updated)
         }
+        .onAppear {
+            if item.folderOptions != options {
+                onOptionsChanged(options)
+            }
+        }
         .onExitCommand(perform: onClose)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(displayName) folder stack")
+        .accessibilityLabel(
+            "\(presentation.displayName), \(presentation.kindDescription)"
+        )
     }
 
     private var displayName: String {
-        item.label
-            ?? FileManager.default.displayName(atPath: item.path)
+        presentation.displayName
     }
 
     private func header(layout: LayoutMetrics) -> some View {
         HStack(spacing: layout.headerSpacing) {
             if !layout.isVeryNarrow {
-                FolderStackFileIcon(
-                    url: folderURL,
-                    size: layout.headerIconSize
-                )
+                Image(nsImage: presentation.icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(
+                        width: layout.headerIconSize,
+                        height: layout.headerIconSize
+                    )
+                    .accessibilityHidden(true)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -130,8 +150,8 @@ struct FolderStackView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .help("Refresh")
-                .accessibilityLabel("Refresh folder contents")
+                .help("Refresh \(displayName)")
+                .accessibilityLabel("Refresh \(displayName)")
             }
 
             optionsMenu(includesRefresh: layout.isNarrow)
@@ -142,7 +162,7 @@ struct FolderStackView: View {
             }
             .buttonStyle(.borderless)
             .help("Close")
-            .accessibilityLabel("Close folder stack")
+            .accessibilityLabel("Close \(displayName)")
         }
         .padding(.horizontal, layout.horizontalChromePadding)
         .padding(.vertical, layout.headerVerticalPadding)
@@ -153,7 +173,7 @@ struct FolderStackView: View {
             return "Loading…"
         }
         guard let snapshot else {
-            return errorMessage == nil ? "Folder" : "Unavailable"
+            return errorMessage == nil ? chrome.idleDetail : "Unavailable"
         }
         let count = snapshot.totalCount
         return "\(count) item\(count == 1 ? "" : "s")"
@@ -192,6 +212,14 @@ struct FolderStackView: View {
             }
 
             Section("Sort By") {
+                if item.smartStackSource == .recentFiles {
+                    optionButton(
+                        "Recently Opened",
+                        selected: options.sortOrder == .recentlyOpened
+                    ) {
+                        options.sortOrder = .recentlyOpened
+                    }
+                }
                 optionButton(
                     "Name",
                     selected: options.sortOrder == .name
@@ -212,22 +240,24 @@ struct FolderStackView: View {
                 }
             }
 
-            Divider()
+            if item.smartStackSource != .recentFiles {
+                Divider()
 
-            Toggle(
-                "Show Hidden Files",
-                isOn: Binding(
-                    get: { options.showHiddenFiles },
-                    set: { options.showHiddenFiles = $0 }
+                Toggle(
+                    "Show Hidden Files",
+                    isOn: Binding(
+                        get: { options.showHiddenFiles },
+                        set: { options.showHiddenFiles = $0 }
+                    )
                 )
-            )
+            }
         } label: {
             Image(systemName: "slider.horizontal.3")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .help("Stack options")
-        .accessibilityLabel("Folder stack options")
+        .accessibilityLabel("\(displayName) stack options")
     }
 
     private func optionButton(
@@ -258,10 +288,10 @@ struct FolderStackView: View {
             .accessibilityElement(children: .combine)
         } else if let errorMessage {
             VStack(spacing: 12) {
-                Image(systemName: "folder.badge.questionmark")
+                Image(systemName: chrome.errorSymbolName)
                     .font(.system(size: 32))
                     .foregroundStyle(.secondary)
-                Text("Folder Unavailable")
+                Text(chrome.errorTitle)
                     .font(.headline)
                 Text(errorMessage)
                     .font(.callout)
@@ -275,14 +305,15 @@ struct FolderStackView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let snapshot, snapshot.entries.isEmpty {
             VStack(spacing: 10) {
-                Image(systemName: "folder")
+                Image(systemName: chrome.emptySymbolName)
                     .font(.system(size: 32))
                     .foregroundStyle(.secondary)
-                Text("Folder Is Empty")
+                Text(chrome.emptyTitle)
                     .font(.headline)
-                Text("Items added to this folder will appear here.")
+                Text(chrome.emptyMessage)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let snapshot {
@@ -413,17 +444,32 @@ struct FolderStackView: View {
 
             Spacer()
 
-            Button(action: onOpenFolder) {
-                if layout.isVeryNarrow {
-                    Image(systemName: "folder")
-                } else {
-                    Text("Open in Finder")
+            if let onOpenContainer {
+                Button(action: onOpenContainer) {
+                    if layout.isVeryNarrow {
+                        Image(systemName: "folder")
+                    } else {
+                        Text("Open in Finder")
+                    }
                 }
-            }
                 .buttonStyle(.borderless)
                 .font(.callout.weight(.medium))
                 .help("Open in Finder")
                 .accessibilityLabel("Open in Finder")
+            } else if let onClearRecentFiles {
+                Button(action: onClearRecentFiles) {
+                    if layout.isVeryNarrow {
+                        Image(systemName: "trash")
+                    } else {
+                        Text("Clear History")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.callout.weight(.medium))
+                .help("Clear Recent Files history")
+                .accessibilityLabel("Clear Recent Files history")
+                .disabled(recentFiles.isEmpty)
+            }
         }
         .padding(.horizontal, layout.horizontalChromePadding)
         .padding(.vertical, layout.footerVerticalPadding)
@@ -431,6 +477,48 @@ struct FolderStackView: View {
 
     private var truncatedItemsDescription: String {
         "Showing the first \(snapshot?.entries.count ?? 0) items"
+    }
+
+    private var showsFooter: Bool {
+        snapshot?.isTruncated == true
+            || onOpenContainer != nil
+            || onClearRecentFiles != nil
+    }
+
+    private var chrome: StackChrome {
+        switch item.smartStackSource {
+        case .recentFiles:
+            return StackChrome(
+                idleDetail: "Recent Files",
+                errorTitle: "Recent Files Unavailable",
+                errorSymbolName: "clock",
+                emptyTitle: "No Recent Files Yet",
+                emptyMessage:
+                    "Documents you open through FreeDock will appear here.",
+                emptySymbolName: "clock"
+            )
+
+        case .downloads:
+            return StackChrome(
+                idleDetail: "Downloads",
+                errorTitle: "Downloads Unavailable",
+                errorSymbolName: "arrow.down.circle",
+                emptyTitle: "No Downloads",
+                emptyMessage: "Files you download will appear here.",
+                emptySymbolName: "arrow.down.circle"
+            )
+
+        case nil:
+            return StackChrome(
+                idleDetail: "Folder",
+                errorTitle: "Folder Unavailable",
+                errorSymbolName: "folder.badge.questionmark",
+                emptyTitle: "Folder Is Empty",
+                emptyMessage:
+                    "Items added to this folder will appear here.",
+                emptySymbolName: "folder"
+            )
+        }
     }
 
     @ViewBuilder
@@ -446,14 +534,16 @@ struct FolderStackView: View {
         isLoading = true
         errorMessage = nil
 
-        let folderURL = folderURL
-        let options = options
+        var configuredItem = item
+        configuredItem.folderOptions = options
+        let loadItem = configuredItem
+        let recentFiles = recentFiles
         let outcome = await Task.detached(priority: .userInitiated) {
             do {
                 return FolderStackLoadOutcome.loaded(
                     try FolderStackLoader.load(
-                        folderURL: folderURL,
-                        options: options,
+                        item: loadItem,
+                        recentFiles: recentFiles,
                         limit: 200
                     )
                 )
@@ -476,10 +566,37 @@ struct FolderStackView: View {
         isLoading = false
     }
 
+    private static func normalizedOptions(
+        for item: DockItem
+    ) -> FolderStackOptions {
+        var options = item.folderOptions
+            ?? item.smartStackSource?.defaultOptions
+            ?? FolderStackOptions()
+        if item.smartStackSource == .recentFiles {
+            options.showHiddenFiles = false
+        } else if options.sortOrder == .recentlyOpened {
+            options.sortOrder = item.smartStackSource?.defaultOptions.sortOrder
+                ?? .name
+        }
+        return options
+    }
+
     private struct LoadKey: Hashable {
+        let itemID: UUID
         let path: String
+        let source: SmartStackSource?
+        let recentFiles: [RecentFileRecord]
         let options: FolderStackOptions
         let reloadID: UUID
+    }
+
+    private struct StackChrome {
+        let idleDetail: String
+        let errorTitle: String
+        let errorSymbolName: String
+        let emptyTitle: String
+        let emptyMessage: String
+        let emptySymbolName: String
     }
 
     private struct LayoutMetrics {

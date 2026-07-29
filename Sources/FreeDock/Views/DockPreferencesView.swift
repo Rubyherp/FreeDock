@@ -432,6 +432,43 @@ struct DockPreferencesView: View {
                         title: "Content",
                         symbol: "square.grid.3x3.fill"
                     ) {
+                        let canAddRecentFilesStack =
+                            DockItemPlanner.planAdding(
+                                smartStack: .recentFiles,
+                                to: dock.items
+                            ).addedCount > 0
+                        let canAddDownloadsStack =
+                            DockItemPlanner.planAdding(
+                                smartStack: .downloads,
+                                to: dock.items
+                            ).addedCount > 0
+
+                        actionRow(
+                            title: "Recent Files stack",
+                            description: "Shows documents opened through FreeDock. History stays local on this Mac.",
+                            buttonTitle: canAddRecentFilesStack ? "Add" : "Added",
+                            isDisabled: !canAddRecentFilesStack
+                        ) {
+                            store.perform(
+                                .addSmartStack(dock.id, .recentFiles)
+                            )
+                        }
+
+                        Divider()
+
+                        actionRow(
+                            title: "Downloads stack",
+                            description: "Keeps your current Downloads folder one click away and updates automatically.",
+                            buttonTitle: canAddDownloadsStack ? "Add" : "Added",
+                            isDisabled: !canAddDownloadsStack
+                        ) {
+                            store.perform(
+                                .addSmartStack(dock.id, .downloads)
+                            )
+                        }
+
+                        Divider()
+
                         actionRow(
                             title: "Add files or folders",
                             description: "Pin applications and documents, or add a folder stack that stays in sync with Finder.",
@@ -448,6 +485,16 @@ struct DockPreferencesView: View {
                             buttonTitle: "Import…"
                         ) {
                             store.perform(.importSystemDockApps(dock.id))
+                        }
+
+                        Divider()
+
+                        actionRow(
+                            title: "Clear Recent Files history",
+                            description: "Removes FreeDock’s local recent-file list without deleting any files.",
+                            buttonTitle: "Clear…"
+                        ) {
+                            store.perform(.clearRecentFiles)
                         }
                     }
 

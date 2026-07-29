@@ -10,6 +10,7 @@ struct DockContentView: View {
     @ObservedObject var state: DockState
     let onItemActivation: @MainActor (DockItem, NSRect) -> Void
     let onAddItemsRequested: @MainActor () -> Void
+    let onAddSmartStackRequested: @MainActor (SmartStackSource) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var iconSize: Double {
@@ -63,6 +64,17 @@ struct DockContentView: View {
             .contextMenu {
                 Button("Add Files or Folders…") {
                     onAddItemsRequested()
+                }
+                Menu("Add Stack") {
+                    Button("Recent Files") {
+                        onAddSmartStackRequested(.recentFiles)
+                    }
+                    .disabled(!canAddSmartStack(.recentFiles))
+
+                    Button("Downloads") {
+                        onAddSmartStackRequested(.downloads)
+                    }
+                    .disabled(!canAddSmartStack(.downloads))
                 }
                 Divider()
                 Button("Add Separator") {
@@ -413,6 +425,13 @@ struct DockContentView: View {
     private func commitItems(_ updatedItems: [DockItem]) {
         displayedItems = updatedItems
         items = updatedItems
+    }
+
+    private func canAddSmartStack(_ source: SmartStackSource) -> Bool {
+        DockItemPlanner.planAdding(
+            smartStack: source,
+            to: currentItems
+        ).addedCount > 0
     }
 }
 

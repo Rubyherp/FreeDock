@@ -8,6 +8,33 @@ enum DockItemKind: String, Codable, Equatable, Sendable {
     case separator
 }
 
+enum SmartStackSource: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
+    case recentFiles
+    case downloads
+
+    var defaultLabel: String {
+        switch self {
+        case .recentFiles: return "Recent Files"
+        case .downloads: return "Downloads"
+        }
+    }
+
+    var defaultOptions: FolderStackOptions {
+        switch self {
+        case .recentFiles:
+            return FolderStackOptions(
+                presentation: .list,
+                sortOrder: .recentlyOpened
+            )
+        case .downloads:
+            return FolderStackOptions(
+                presentation: .automatic,
+                sortOrder: .dateModified
+            )
+        }
+    }
+}
+
 struct FolderStackOptions: Codable, Equatable, Hashable, Sendable {
     enum Presentation: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
         case automatic
@@ -19,6 +46,7 @@ struct FolderStackOptions: Codable, Equatable, Hashable, Sendable {
         case name
         case dateModified
         case kind
+        case recentlyOpened
     }
 
     var presentation: Presentation
@@ -61,6 +89,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
     var label: String?
     var kind: DockItemKind
     var folderOptions: FolderStackOptions?
+    var smartStackSource: SmartStackSource?
 
     /// Source compatibility for code and configs created before typed dock items.
     var appPath: String {
@@ -78,14 +107,20 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         kind: DockItemKind,
         path: String,
         label: String? = nil,
-        folderOptions: FolderStackOptions? = nil
+        folderOptions: FolderStackOptions? = nil,
+        smartStackSource: SmartStackSource? = nil
     ) {
         self.id = id
-        self.kind = kind
-        self.path = kind == .separator ? "" : path
-        self.label = label
-        self.folderOptions = kind == .folder
-            ? (folderOptions ?? FolderStackOptions())
+        self.kind = smartStackSource == nil ? kind : .folder
+        self.path = kind == .separator || smartStackSource != nil ? "" : path
+        self.label = label ?? smartStackSource?.defaultLabel
+        self.smartStackSource = smartStackSource
+        self.folderOptions = self.kind == .folder
+            ? (
+                folderOptions
+                    ?? smartStackSource?.defaultOptions
+                    ?? FolderStackOptions()
+            )
             : nil
     }
 
@@ -140,6 +175,48 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         )
     }
 
+    static func smartStack(
+        _ source: SmartStackSource,
+        id: UUID = UUID(),
+        label: String? = nil,
+        options: FolderStackOptions? = nil
+    ) -> DockItem {
+        DockItem(
+            id: id,
+            kind: .folder,
+            path: "",
+            label: label,
+            folderOptions: options,
+            smartStackSource: source
+        )
+    }
+
+    static func recentFilesStack(
+        id: UUID = UUID(),
+        label: String? = nil,
+        options: FolderStackOptions? = nil
+    ) -> DockItem {
+        smartStack(
+            .recentFiles,
+            id: id,
+            label: label,
+            options: options
+        )
+    }
+
+    static func downloadsStack(
+        id: UUID = UUID(),
+        label: String? = nil,
+        options: FolderStackOptions? = nil
+    ) -> DockItem {
+        smartStack(
+            .downloads,
+            id: id,
+            label: label,
+            options: options
+        )
+    }
+
     static func separator(id: UUID = UUID()) -> DockItem {
         DockItem(id: id, kind: .separator, path: "")
     }
@@ -149,15 +226,16 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         guard url.isFileURL else { return nil }
 
         let standardizedURL = url.standardizedFileURL
+        let classificationURL = standardizedURL.resolvingSymlinksInPath()
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(
-            atPath: standardizedURL.path,
+            atPath: classificationURL.path,
             isDirectory: &isDirectory
         ) else {
             return nil
         }
 
-        let values = try? standardizedURL.resourceValues(
+        let values = try? classificationURL.resourceValues(
             forKeys: [
                 .contentTypeKey,
                 .isDirectoryKey,
@@ -171,6 +249,8 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             directory
             && (
                 standardizedURL.pathExtension.caseInsensitiveCompare("app")
+                    == .orderedSame
+                || classificationURL.pathExtension.caseInsensitiveCompare("app")
                     == .orderedSame
                 || contentType?.conforms(to: .application) == true
             )
@@ -192,12 +272,18 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             kind: kind,
             path: path,
             label: label,
-            folderOptions: folderOptions
+            folderOptions: folderOptions,
+            smartStackSource: smartStackSource
         )
     }
 
     var fileURL: URL? {
-        guard kind != .separator, !path.isEmpty else { return nil }
+        guard kind != .separator,
+              smartStackSource == nil,
+              !path.isEmpty
+        else {
+            return nil
+        }
         return URL(fileURLWithPath: path)
     }
 
@@ -221,6 +307,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         case label
         case kind
         case folderOptions
+        case smartStackSource
         case isSeparator
     }
 
@@ -232,21 +319,31 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             (try? container.decode(Bool.self, forKey: .isSeparator))
             ?? false
         let decodedKind = try? container.decode(DockItemKind.self, forKey: .kind)
-        kind = legacySeparator ? .separator : (decodedKind ?? .application)
+        smartStackSource = try? container.decode(
+            SmartStackSource.self,
+            forKey: .smartStackSource
+        )
+        kind = legacySeparator
+            ? .separator
+            : (smartStackSource == nil ? (decodedKind ?? .application) : .folder)
 
         let decodedPath =
             (try? container.decode(String.self, forKey: .path))
             ?? (try? container.decode(String.self, forKey: .appPath))
             ?? ""
-        path = kind == .separator ? "" : decodedPath
-        label = try? container.decode(String.self, forKey: .label)
+        path = kind == .separator || smartStackSource != nil ? "" : decodedPath
+        label =
+            (try? container.decode(String.self, forKey: .label))
+            ?? smartStackSource?.defaultLabel
 
         if kind == .folder {
             folderOptions =
                 (try? container.decode(FolderStackOptions.self, forKey: .folderOptions))
+                ?? smartStackSource?.defaultOptions
                 ?? FolderStackOptions()
         } else {
             folderOptions = nil
+            smartStackSource = nil
         }
     }
 
@@ -258,6 +355,10 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         try container.encodeIfPresent(label, forKey: .label)
         try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(folderOptions, forKey: .folderOptions)
+        try container.encodeIfPresent(
+            smartStackSource,
+            forKey: .smartStackSource
+        )
         try container.encode(isSeparator, forKey: .isSeparator)
     }
 }

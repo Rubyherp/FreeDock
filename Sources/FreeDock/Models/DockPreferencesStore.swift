@@ -27,6 +27,8 @@ enum DockManagementAction: Equatable {
     case deleteDock(UUID)
     case setDockDisplay(UUID, UUID?)
     case addDockItems(UUID)
+    case addSmartStack(UUID, SmartStackSource)
+    case clearRecentFiles
     case importSystemDockApps(UUID)
     case resetDockSettings(UUID)
     case copyDockSettingsToAll(UUID)

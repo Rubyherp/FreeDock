@@ -7,6 +7,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Floating horizontal and vertical docks
 - Drag-and-drop pinning and mixed reordering for applications, documents, folders, and separators
 - Live folder stacks with automatic, grid, and list browsing; configurable sorting and hidden-file visibility
+- Recent Files and Downloads smart stacks, with a local, clearable 50-document history and dynamic Downloads resolution
 - Native magnification, running-app indicators, tooltips, and launch animation
 - Edge snapping and slide-away auto-hide, configurable per dock
 - Persisted dock positions and size
@@ -18,7 +19,6 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 
 ## Next: find and launch faster
 
-- Recent files and downloads stacks
 - Search and keyboard navigation across pinned items
 - Dragging compatible files onto an app to open them
 

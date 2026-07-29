@@ -123,16 +123,7 @@ struct DockItemView: View {
 
     @ViewBuilder
     private var itemBadge: some View {
-        if item.kind == .folder {
-            Image(systemName: "square.grid.2x2.fill")
-                .font(.system(size: max(8, iconSize * 0.18), weight: .bold))
-                .foregroundStyle(.white)
-                .padding(max(3, iconSize * 0.06))
-                .background(.black.opacity(0.62), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.32), lineWidth: 0.5))
-                .offset(x: 2, y: 2)
-                .accessibilityHidden(true)
-        } else if !resolvedPresentation.isAvailable {
+        if !resolvedPresentation.isAvailable {
             Image(systemName: "questionmark")
                 .font(.system(size: max(9, iconSize * 0.2), weight: .bold))
                 .foregroundStyle(.white)
@@ -140,12 +131,30 @@ struct DockItemView: View {
                 .background(.secondary.opacity(0.78), in: Circle())
                 .offset(x: 2, y: 2)
                 .accessibilityHidden(true)
+        } else if let badgeSymbolName = resolvedPresentation.badgeSymbolName {
+            Image(systemName: badgeSymbolName)
+                .font(.system(size: max(8, iconSize * 0.18), weight: .bold))
+                .foregroundStyle(.white)
+                .padding(max(3, iconSize * 0.06))
+                .background(.black.opacity(0.62), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.32), lineWidth: 0.5))
+                .offset(x: 2, y: 2)
+                .accessibilityHidden(true)
         }
     }
 
     @ViewBuilder
     private var itemContextMenu: some View {
-        if item.kind == .folder {
+        if item.smartStackSource == .recentFiles {
+            Button("Show Recent Files") { activate() }
+        } else if item.smartStackSource == .downloads {
+            Button("Show Downloads") { activate() }
+            if let downloadsURL {
+                Button("Open Downloads in Finder") {
+                    NSWorkspace.shared.open(downloadsURL)
+                }
+            }
+        } else if item.kind == .folder {
             Button("Show Contents") { activate() }
             Button("Open in Finder") {
                 NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
@@ -154,10 +163,25 @@ struct DockItemView: View {
             Button("Open") { activate() }
         }
 
-        Button("Show in Finder") { showInFinder() }
-        Button("Copy Path") { copyPath() }
+        if item.fileURL != nil {
+            Button("Show in Finder") { showInFinder() }
+            Button("Copy Path") { copyPath() }
+        }
         Divider()
         Button("Remove from Dock", role: .destructive) { onRemove() }
+    }
+
+    private var downloadsURL: URL? {
+        guard item.smartStackSource == .downloads,
+              let url = FileManager.default.urls(
+                  for: .downloadsDirectory,
+                  in: .userDomainMask
+              ).first?.standardizedFileURL,
+              FileManager.default.fileExists(atPath: url.path)
+        else {
+            return nil
+        }
+        return url
     }
 
     private var accessibilityValue: String {
@@ -172,6 +196,13 @@ struct DockItemView: View {
     }
 
     private var accessibilityHint: String {
+        if item.smartStackSource == .recentFiles {
+            return "Shows documents opened through FreeDock."
+        }
+        if item.smartStackSource == .downloads {
+            return "Shows items in the Downloads folder."
+        }
+
         switch item.kind {
         case .folder:
             return "Shows this folder’s contents."
@@ -225,14 +256,15 @@ struct DockItemView: View {
     }
 
     private func showInFinder() {
-        guard !item.path.isEmpty else { return }
+        guard let fileURL = item.fileURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([
-            URL(fileURLWithPath: item.path),
+            fileURL,
         ])
     }
 
     private func copyPath() {
+        guard let fileURL = item.fileURL else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.path, forType: .string)
+        NSPasteboard.general.setString(fileURL.path, forType: .string)
     }
 }

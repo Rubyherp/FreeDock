@@ -479,6 +479,12 @@ func preferencesStoreSelectionAndUpdates() {
 
     store.perform(.addDockItems(second.id))
     #expect(managementAction == .addDockItems(second.id))
+    store.perform(.addSmartStack(second.id, .recentFiles))
+    #expect(managementAction == .addSmartStack(second.id, .recentFiles))
+    store.perform(.addSmartStack(second.id, .downloads))
+    #expect(managementAction == .addSmartStack(second.id, .downloads))
+    store.perform(.clearRecentFiles)
+    #expect(managementAction == .clearRecentFiles)
     store.perform(.importSystemDockApps(second.id))
     #expect(managementAction == .importSystemDockApps(second.id))
     store.perform(.setDockDisplay(second.id, displayID))

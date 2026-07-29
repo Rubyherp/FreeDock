@@ -56,6 +56,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
 - **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
 - **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
+- **Smart stacks** — Add Recent Files and Downloads without pinning fixed paths; Recent Files tracks successful document opens through FreeDock, while Downloads resolves for the current user
 - **Reorder** — Drag apps, documents, folders, and separators into any arrangement
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
@@ -105,24 +106,34 @@ make run
 2. Select **New Dock → Horizontal** or **Vertical**
 3. Drag applications, documents, or folders from Finder into the dock
 4. Click an app or document to open it, or click a folder to browse its live contents
-5. Use a folder stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
-6. Drag pinned items to reorder them, or drag the empty space around the dock to reposition it
-7. Right-click an item to open or reveal it, copy its path, or remove it
+5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
+6. Use a stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
+7. Drag pinned items to reorder them, or drag the empty space around the dock to reposition it
+8. Right-click an item to open or reveal it, copy its path, or remove it
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files or folders, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
+**Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the Recent Files stack.
+
+**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 
 ## Configuration
 
-Docks and profiles are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 3 adds typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
+Docks, profiles, and FreeDock’s local recent-document history are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 4 adds Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Version 3 introduced typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 3,
+  "formatVersion": 4,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
+  "recentFiles": [
+    {
+      "path": "/Users/example/Documents/Project Brief.pdf",
+      "displayName": "Project Brief.pdf",
+      "lastOpenedAt": 806976000
+    }
+  ],
   "profiles": [
     {
       "id": "11111111-1111-1111-1111-111111111111",
@@ -183,6 +194,34 @@ Docks and profiles are saved to `~/.config/freedock.json`. The file is human-rea
             },
             {
               "id": "77777777-7777-7777-7777-777777777777",
+              "kind": "folder",
+              "path": "",
+              "appPath": "",
+              "label": "Recent Files",
+              "smartStackSource": "recentFiles",
+              "folderOptions": {
+                "presentation": "list",
+                "sortOrder": "recentlyOpened",
+                "showHiddenFiles": false
+              },
+              "isSeparator": false
+            },
+            {
+              "id": "88888888-8888-8888-8888-888888888888",
+              "kind": "folder",
+              "path": "",
+              "appPath": "",
+              "label": "Downloads",
+              "smartStackSource": "downloads",
+              "folderOptions": {
+                "presentation": "automatic",
+                "sortOrder": "dateModified",
+                "showHiddenFiles": false
+              },
+              "isSeparator": false
+            },
+            {
+              "id": "99999999-9999-9999-9999-999999999999",
               "kind": "separator",
               "path": "",
               "appPath": "",
@@ -197,6 +236,8 @@ Docks and profiles are saved to `~/.config/freedock.json`. The file is human-rea
 ```
 
 FreeDock also writes the active profile’s docks to a top-level compatibility field so older builds can still open the current setup. Typed items retain the legacy `appPath` and `isSeparator` fields for the same reason; `kind` and `path` are the version 3 fields to use when editing the file.
+
+Smart stacks are folder-style items with an empty path and a `smartStackSource`. A Downloads stack resolves the current user’s Downloads directory dynamically instead of saving it as a fixed path. Only one stack for each smart source can be added to a dock.
 
 ## Contributing
 

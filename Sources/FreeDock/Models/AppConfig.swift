@@ -1,18 +1,30 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 3
+    static let currentFormatVersion = 4
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
+    var recentFiles: [RecentFileRecord]
 
-    init(docks: [DockConfig] = []) {
+    init(
+        docks: [DockConfig] = [],
+        recentFiles: [RecentFileRecord] = []
+    ) {
         let profile = DockProfile(name: "Default", docks: docks)
         profiles = [profile]
         activeProfileID = profile.id
+        self.recentFiles = RecentFileHistoryPlanner.normalized(
+            recentFiles,
+            limit: RecentFileHistoryPlanner.maximumLimit
+        )
     }
 
-    init(profiles: [DockProfile], activeProfileID: UUID? = nil) {
+    init(
+        profiles: [DockProfile],
+        activeProfileID: UUID? = nil,
+        recentFiles: [RecentFileRecord] = []
+    ) {
         let availableProfiles = profiles.isEmpty ? [DockProfile(name: "Default")] : profiles
         self.profiles = availableProfiles
         if let activeProfileID,
@@ -22,6 +34,10 @@ struct AppConfig: Codable, Sendable {
         } else {
             self.activeProfileID = availableProfiles[0].id
         }
+        self.recentFiles = RecentFileHistoryPlanner.normalized(
+            recentFiles,
+            limit: RecentFileHistoryPlanner.maximumLimit
+        )
     }
 
     var docks: [DockConfig] {
@@ -48,10 +64,18 @@ struct AppConfig: Codable, Sendable {
         case profiles
         case activeProfileID
         case docks
+        case recentFiles
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        recentFiles = RecentFileHistoryPlanner.normalized(
+            (try? container.decode(
+                [RecentFileRecord].self,
+                forKey: .recentFiles
+            )) ?? [],
+            limit: RecentFileHistoryPlanner.maximumLimit
+        )
 
         if let decodedProfiles = try container.decodeIfPresent([DockProfile].self, forKey: .profiles),
            !decodedProfiles.isEmpty
@@ -80,5 +104,6 @@ struct AppConfig: Codable, Sendable {
         try container.encode(profiles, forKey: .profiles)
         try container.encode(activeProfileID, forKey: .activeProfileID)
         try container.encode(docks, forKey: .docks)
+        try container.encode(recentFiles, forKey: .recentFiles)
     }
 }
