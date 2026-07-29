@@ -74,26 +74,44 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var activeProfileID: UUID
     @Published private(set) var docks: [DockConfig]
     @Published private(set) var displays: [DockDisplayDescriptor]
+    @Published private(set) var permissionState: PreferencesPermissionState
     @Published var selectedDockID: UUID?
 
     private let onChange: (UUID, DockPreferenceChange) -> Void
     private let onManagementAction: (DockManagementAction) -> Void
+    private let permissionSnapshot: () -> PreferencesPermissionSnapshot
+    private let onPermissionAction: (PreferencesPermissionKind) -> Void
+    private let onOpenPermissionSettings: (PreferencesPermissionKind) -> Void
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID,
         displays: [DockDisplayDescriptor] = [],
+        permissionState: PreferencesPermissionState = PreferencesPermissionState(),
         onChange: @escaping (UUID, DockPreferenceChange) -> Void,
-        onManagementAction: @escaping (DockManagementAction) -> Void
+        onManagementAction: @escaping (DockManagementAction) -> Void,
+        permissionSnapshot: @escaping () -> PreferencesPermissionSnapshot = {
+            .checking
+        },
+        onPermissionAction: @escaping (PreferencesPermissionKind) -> Void = {
+            _ in
+        },
+        onOpenPermissionSettings: @escaping (PreferencesPermissionKind) -> Void = {
+            _ in
+        }
     ) {
         self.profiles = profiles
         self.activeProfileID = activeProfileID
         let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
         docks = activeDocks
         self.displays = displays
+        self.permissionState = permissionState
         selectedDockID = activeDocks.first?.id
         self.onChange = onChange
         self.onManagementAction = onManagementAction
+        self.permissionSnapshot = permissionSnapshot
+        self.onPermissionAction = onPermissionAction
+        self.onOpenPermissionSettings = onOpenPermissionSettings
     }
 
     var activeProfileName: String {
@@ -148,6 +166,23 @@ final class DockPreferencesStore: ObservableObject {
 
     func perform(_ action: DockManagementAction) {
         onManagementAction(action)
+    }
+
+    func refreshPermissions() {
+        var updatedState = permissionState
+        guard updatedState.refresh(with: permissionSnapshot()) != .unchanged else {
+            return
+        }
+        permissionState = updatedState
+    }
+
+    func performPermissionAction(_ permission: PreferencesPermissionKind) {
+        onPermissionAction(permission)
+        refreshPermissions()
+    }
+
+    func openPermissionSettings(_ permission: PreferencesPermissionKind) {
+        onOpenPermissionSettings(permission)
     }
 
     func isDisplayConnected(_ id: UUID) -> Bool {

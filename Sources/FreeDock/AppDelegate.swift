@@ -292,12 +292,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let store = DockPreferencesStore(
                 profiles: configManager.config.profiles,
                 activeProfileID: configManager.config.activeProfileID,
-                displays: DockDisplayManager.connectedDisplays
-            ) { [weak self] dockID, change in
-                self?.applyDockPreference(change, to: dockID)
-            } onManagementAction: { [weak self] action in
-                self?.handleDockManagementAction(action)
-            }
+                displays: DockDisplayManager.connectedDisplays,
+                onChange: { [weak self] dockID, change in
+                    self?.applyDockPreference(change, to: dockID)
+                },
+                onManagementAction: { [weak self] action in
+                    self?.handleDockManagementAction(action)
+                },
+                permissionSnapshot: { [weak self] in
+                    guard let self else { return .checking }
+                    return PreferencesPermissionSnapshot(
+                        accessibilityGranted:
+                            self.windowPreviewController
+                                .isAccessibilityTrusted,
+                        screenRecordingGranted:
+                            self.windowPreviewController
+                                .isScreenCaptureTrusted
+                    )
+                },
+                onPermissionAction: { [weak self] permission in
+                    self?.handlePermissionAction(permission)
+                },
+                onOpenPermissionSettings: {
+                    [weak self] permission in
+                    self?.openPermissionSettings(permission)
+                }
+            )
             preferencesStore = store
             preferencesWindowController = PreferencesWindowController(store: store)
         }
@@ -312,6 +332,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activeProfileID: configManager.config.activeProfileID,
             displays: DockDisplayManager.connectedDisplays
         )
+        preferencesStore?.refreshPermissions()
+    }
+
+    private func handlePermissionAction(
+        _ permission: PreferencesPermissionKind
+    ) {
+        switch permission {
+        case .accessibility:
+            if windowPreviewController.isAccessibilityTrusted {
+                openPermissionSettings(permission)
+            } else {
+                windowPreviewController.requestAccessibilityAccess()
+            }
+        case .screenRecording:
+            if windowPreviewController.isScreenCaptureTrusted {
+                openPermissionSettings(permission)
+            } else {
+                windowPreviewController.requestScreenCaptureAccess()
+            }
+        }
+
+        preferencesStore?.refreshPermissions()
+    }
+
+    private func openPermissionSettings(
+        _ permission: PreferencesPermissionKind
+    ) {
+        let privacyAnchor: String
+        switch permission {
+        case .accessibility:
+            privacyAnchor = "Privacy_Accessibility"
+        case .screenRecording:
+            privacyAnchor = "Privacy_ScreenCapture"
+        }
+
+        let workspace = NSWorkspace.shared
+        if let privacyURL = URL(
+            string:
+                "x-apple.systempreferences:com.apple.preference.security?\(privacyAnchor)"
+        ),
+           workspace.open(privacyURL)
+        {
+            return
+        }
+
+        if let settingsURL = workspace.urlForApplication(
+            withBundleIdentifier: "com.apple.systempreferences"
+        ),
+           workspace.open(settingsURL)
+        {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Open Privacy Settings"
+        alert.informativeText = """
+        Open System Settings → Privacy & Security and select \(permission.title). On macOS 12, open System Preferences → Security & Privacy → Privacy.
+        """
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func handleDockManagementAction(_ action: DockManagementAction) {

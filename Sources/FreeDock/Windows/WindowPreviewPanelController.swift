@@ -156,9 +156,18 @@ final class WindowPreviewPanelController {
         applicationWindows.isScreenCaptureTrusted
     }
 
+    @discardableResult
+    func requestAccessibilityAccess() -> Bool {
+        applicationWindows.requestAccessibilityAccess()
+    }
+
+    @discardableResult
+    func requestScreenCaptureAccess() -> Bool {
+        applicationWindows.requestScreenCaptureAccess()
+    }
+
     func enableWindowThumbnails() {
-        let granted =
-            applicationWindows.requestScreenCaptureAccess()
+        let granted = requestScreenCaptureAccess()
         guard granted
                 || applicationWindows.isScreenCaptureTrusted
         else {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct DockPreferencesView: View {
@@ -13,6 +14,16 @@ struct DockPreferencesView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            store.refreshPermissions()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            store.refreshPermissions()
+        }
     }
 
     private var sidebar: some View {
@@ -234,6 +245,8 @@ struct DockPreferencesView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
+
+                    permissionsSection
 
                     settingsSection(
                         title: "Appearance",
@@ -526,16 +539,229 @@ struct DockPreferencesView: View {
                 .frame(maxWidth: 760, alignment: .leading)
             }
         } else {
-            VStack(spacing: 12) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(.secondary)
-                Text("Select a Dock")
-                    .font(.title2.weight(.semibold))
-                Text("Choose a dock in the sidebar to customize it.")
-                    .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 38, weight: .light))
+                            .foregroundStyle(.secondary)
+                        Text("Select a Dock")
+                            .font(.title2.weight(.semibold))
+                        Text(
+                            "Choose a dock in the sidebar to customize it."
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 210,
+                        alignment: .center
+                    )
+
+                    permissionsSection
+                }
+                .padding(28)
+                .frame(maxWidth: 760, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var permissionsSection: some View {
+        settingsSection(
+            title: "Permissions",
+            symbol: "lock.shield.fill"
+        ) {
+            Text(
+                "Window discovery and thumbnails stay on this Mac. FreeDock never uploads window titles or images, and thumbnail images are cleared from memory when the preview closes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+
+            let presentations =
+                store.permissionState.presentations
+            ForEach(presentations) { presentation in
+                permissionRow(presentation)
+
+                if presentation.id != presentations.last?.id {
+                    Divider()
+                }
+            }
+        }
+    }
+
+    private func permissionRow(
+        _ presentation: PreferencesPermissionPresentation
+    ) -> some View {
+        HStack(alignment: .top, spacing: 13) {
+            Image(
+                systemName: permissionSymbol(
+                    for: presentation.permission
+                )
+            )
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    Color.primary.opacity(0.055),
+                    in: RoundedRectangle(
+                        cornerRadius: 7,
+                        style: .continuous
+                    )
+                )
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(
+                    permissionFeatureTitle(
+                        for: presentation.permission
+                    )
+                )
+                    .fontWeight(.medium)
+
+                Text("macOS permission: \(presentation.title)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text(
+                    permissionDescription(
+                        for: presentation.permission
+                    )
+                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                permissionStatus(
+                    presentation
+                )
+
+                Button(presentation.actionTitle) {
+                    store.performPermissionAction(
+                        presentation.permission
+                    )
+                }
+                .controlSize(.small)
+                .disabled(!presentation.isActionEnabled)
+                .accessibilityLabel(
+                    "\(presentation.actionTitle) for FreeDock"
+                )
+
+                if presentation.status == .notGranted {
+                    Button("Open System Settings…") {
+                        store.openPermissionSettings(
+                            presentation.permission
+                        )
+                    }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        "Open \(presentation.title) settings"
+                    )
+                }
+            }
+            .frame(minWidth: 190, alignment: .trailing)
+        }
+    }
+
+    private func permissionStatus(
+        _ presentation: PreferencesPermissionPresentation
+    ) -> some View {
+        let color = permissionStatusColor(
+            presentation.status
+        )
+        return Label(
+            permissionStatusLabel(presentation.status),
+            systemImage: permissionStatusSymbol(
+                presentation.status
+            )
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.11), in: Capsule())
+        .accessibilityLabel(
+            "\(presentation.title): \(permissionStatusLabel(presentation.status))"
+        )
+    }
+
+    private func permissionFeatureTitle(
+        for permission: PreferencesPermissionKind
+    ) -> String {
+        switch permission {
+        case .accessibility:
+            return "Window switching"
+        case .screenRecording:
+            return "Window thumbnails"
+        }
+    }
+
+    private func permissionSymbol(
+        for permission: PreferencesPermissionKind
+    ) -> String {
+        switch permission {
+        case .accessibility:
+            return "rectangle.stack.fill"
+        case .screenRecording:
+            return "rectangle.on.rectangle"
+        }
+    }
+
+    private func permissionDescription(
+        for permission: PreferencesPermissionKind
+    ) -> String {
+        switch permission {
+        case .accessibility:
+            return "Required for window switching. Lets FreeDock find and bring forward an app’s windows across Desktops. It does not read what you type."
+        case .screenRecording:
+            return "Optional. Shows the current content of each window, including windows on other Desktops. Window switching still works without it. Each browser window reflects its selected tab; inactive tabs are not captured separately. macOS may require FreeDock to reopen after approval."
+        }
+    }
+
+    private func permissionStatusLabel(
+        _ status: PreferencesPermissionStatus
+    ) -> String {
+        switch status {
+        case .checking:
+            return "Checking…"
+        case .notGranted:
+            return "Needs Access"
+        case .granted:
+            return "Granted"
+        }
+    }
+
+    private func permissionStatusSymbol(
+        _ status: PreferencesPermissionStatus
+    ) -> String {
+        switch status {
+        case .checking:
+            return "ellipsis.circle.fill"
+        case .notGranted:
+            return "exclamationmark.circle.fill"
+        case .granted:
+            return "checkmark.circle.fill"
+        }
+    }
+
+    private func permissionStatusColor(
+        _ status: PreferencesPermissionStatus
+    ) -> Color {
+        switch status {
+        case .checking:
+            return .secondary
+        case .notGranted:
+            return .orange
+        case .granted:
+            return .green
         }
     }
 

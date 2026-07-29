@@ -116,8 +116,8 @@ make run
 5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
 6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
-8. Right-click a running app and choose **Enable Window Switching…** to request Accessibility access from macOS
-9. Choose **Enable Window Thumbnails…** to optionally grant Screen Recording access; macOS may require FreeDock to be reopened after approval
+8. Open **Preferences → Permissions** (or right-click a running app and choose **Enable Window Switching…**) to request Accessibility access from macOS
+9. From the same Permissions section, optionally enable Screen Recording for live window thumbnails; macOS may require FreeDock to be reopened after approval
 10. Hover over the app or choose **Show Windows…** to see its windows across desktops, then select one to bring it forward
 11. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
 12. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
@@ -131,7 +131,7 @@ make run
 
 **Window switcher keyboard controls:** Right-click a running app and choose **Show Windows…**, then use the arrow keys, Tab, or Shift-Tab to move between cards. Press Return, keypad Enter, or Space to activate the selected window, or Escape to close the switcher.
 
-**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
+**Customization:** Choose **Preferences…** from the FreeDock menu to manage window permissions, switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌘⇧Space` for Quick Launch. Type to narrow the pinned items in the dock nearest your pointer, use the arrow keys or Tab and Shift-Tab to move the selection, press Return to open it, or Escape to close. Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 
