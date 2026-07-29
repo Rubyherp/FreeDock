@@ -9,6 +9,7 @@ struct DockContentView: View {
     let orientation: Orientation
     @ObservedObject var state: DockState
     let onItemActivation: @MainActor (DockItem, NSRect) -> Void
+    let onQuickLaunchDismiss: @MainActor () -> Void
     let onAddItemsRequested: @MainActor () -> Void
     let onAddSmartStackRequested: @MainActor (SmartStackSource) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,6 +25,8 @@ struct DockContentView: View {
     @State private var hoveredItem: UUID?
     @State private var dropTargetItem: UUID?
     @State private var trailingTargeted = false
+    @State private var quickLaunchQuery = ""
+    @State private var quickLaunchSelection = QuickLaunchSelection()
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
@@ -33,13 +36,42 @@ struct DockContentView: View {
         DockResizeGestureMath.resizableItemCount(in: currentItems)
     }
 
+    private var quickLaunchResults: [QuickLaunchSearchResult] {
+        QuickLaunchSearch.results(
+            in: currentItems,
+            matching: quickLaunchQuery
+        )
+    }
+
+    private var quickLaunchResultsInDockOrder: [QuickLaunchSearchResult] {
+        quickLaunchResults.sorted { $0.dockIndex < $1.dockIndex }
+    }
+
+    private var matchingItemIDs: Set<DockItem.ID> {
+        Set(quickLaunchResults.map(\.id))
+    }
+
+    private var selectedQuickLaunchItemID: DockItem.ID? {
+        quickLaunchSelection.selectedItemID
+    }
+
+    private var selectedQuickLaunchResult: QuickLaunchSearchResult? {
+        quickLaunchSelection.selectedResult(in: quickLaunchResults)
+    }
+
     private var surfaceCornerRadius: CGFloat {
         CGFloat(state.cornerRadius)
     }
 
-    private var magnificationHeadroom: CGFloat {
+    private var configuredMagnificationHeadroom: CGFloat {
         guard state.magnificationEnabled else { return 10 }
         return max(10, iconSize * (state.magnification - 1 + 0.04))
+    }
+
+    private var magnificationHeadroom: CGFloat {
+        state.isQuickLaunchPresented
+            ? 10
+            : configuredMagnificationHeadroom
     }
 
     private var chromeColor: Color {
@@ -60,11 +92,31 @@ struct DockContentView: View {
                 if !hovering { hoveredItem = nil }
             }
             .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-                handleFileDrop(providers)
+                guard !state.isQuickLaunchPresented else { return false }
+                return handleFileDrop(providers)
             }
             .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
-            .onAppear { displayedItems = items }
-            .onChange(of: items) { displayedItems = $0 }
+            .onAppear {
+                displayedItems = items
+                if state.isQuickLaunchPresented {
+                    resetQuickLaunch()
+                }
+            }
+            .onChange(of: items) {
+                displayedItems = $0
+                reconcileQuickLaunchSelection()
+            }
+            .onChange(of: state.quickLaunchFocusGeneration) { _ in
+                resetQuickLaunch()
+            }
+            .onChange(of: quickLaunchQuery) { _ in
+                reconcileQuickLaunchSelection()
+            }
+            .onChange(of: hoveredItem) { itemID in
+                updateQuickLaunchSelectionFromHover(itemID)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("\(state.name) dock")
             .contextMenu {
                 Button("Add Files or Folders…") {
                     onAddItemsRequested()
@@ -91,7 +143,9 @@ struct DockContentView: View {
 
     @ViewBuilder
     private var dockLayout: some View {
-        if orientation == .horizontal {
+        if state.isQuickLaunchPresented {
+            quickLaunchDockLayout
+        } else if orientation == .horizontal {
             HStack(spacing: state.itemSpacing) { content }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 9)
@@ -129,6 +183,165 @@ struct DockContentView: View {
     }
 
     @ViewBuilder
+    private var quickLaunchDockLayout: some View {
+        if orientation == .horizontal {
+            if panel.dockedEdgeForLayout == .top {
+                VStack(alignment: .leading, spacing: 7) {
+                    quickLaunchItemsSurface
+                    quickLaunchSearchPanel
+                }
+                .padding(.top, configuredMagnificationHeadroom)
+                .padding(.bottom, 10)
+            } else {
+                VStack(alignment: .leading, spacing: 7) {
+                    quickLaunchSearchPanel
+                    quickLaunchItemsSurface
+                }
+                .padding(.top, 10)
+            }
+        } else if panel.dockedEdgeForLayout == .right {
+            HStack(alignment: .top, spacing: 7) {
+                quickLaunchSearchPanel
+                quickLaunchItemsSurface
+            }
+            .padding(
+                .horizontal,
+                configuredMagnificationHeadroom * 0.52
+            )
+        } else {
+            HStack(alignment: .top, spacing: 7) {
+                quickLaunchItemsSurface
+                quickLaunchSearchPanel
+            }
+            .padding(
+                .horizontal,
+                configuredMagnificationHeadroom * 0.52
+            )
+        }
+    }
+
+    private var quickLaunchSearchPanel: some View {
+        quickLaunchSearchBar
+            .padding(6)
+            .background(dockSurface)
+    }
+
+    @ViewBuilder
+    private var quickLaunchItemsSurface: some View {
+        if orientation == .horizontal {
+            quickLaunchItems
+                .padding(.horizontal, 8)
+                .padding(.vertical, 9)
+                .background(dockSurface)
+        } else {
+            quickLaunchItems
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .background(dockSurface)
+        }
+    }
+
+    private var quickLaunchItems: some View {
+        ZStack {
+            if orientation == .horizontal {
+                HStack(spacing: state.itemSpacing) { content }
+            } else {
+                VStack(spacing: state.itemSpacing) { content }
+            }
+
+            if quickLaunchResults.isEmpty, !currentItems.isEmpty {
+                Text(
+                    quickLaunchQuery.isEmpty
+                        ? "No launchable items"
+                        : "No matching items"
+                )
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(chromeColor.opacity(0.76))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(chromeColor.opacity(0.10))
+                )
+                .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var quickLaunchSearchBar: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 7) {
+                QuickLaunchSearchField(
+                    text: $quickLaunchQuery,
+                    focusGeneration: state.quickLaunchFocusGeneration,
+                    placeholder: "Search this dock",
+                    accessibilityLabel: "Search \(state.name)",
+                    accessibilityHelp: "Type to filter. Use arrow keys to choose, Return to open, and Escape to close.",
+                    accessibilityStatus: quickLaunchAccessibilityValue,
+                    onCommand: handleQuickLaunchCommand
+                )
+                .frame(height: 22)
+
+                Text("\(quickLaunchResults.count)")
+                    .font(.system(
+                        size: 10,
+                        weight: .semibold,
+                        design: .rounded
+                    ))
+                    .foregroundStyle(chromeColor.opacity(0.55))
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 6) {
+                Text(quickLaunchSelectionLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                if selectedQuickLaunchResult != nil {
+                    Text("\(quickLaunchSelectionPositionText)  ↩ Open")
+                        .lineLimit(1)
+                }
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(chromeColor.opacity(0.58))
+            .accessibilityHidden(true)
+        }
+        .frame(
+            width: 228,
+            height: 43
+        )
+        .padding(.horizontal, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(chromeColor.opacity(0.075))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(chromeColor.opacity(0.13), lineWidth: 0.75)
+        }
+    }
+
+    private var quickLaunchSelectionLabel: String {
+        if let selectedQuickLaunchResult {
+            return selectedQuickLaunchResult.displayLabel
+        }
+        return quickLaunchQuery.isEmpty
+            ? "No launchable items"
+            : "No matching items"
+    }
+
+    private var quickLaunchSelectionPositionText: String {
+        guard let selectedQuickLaunchResult,
+              let position = quickLaunchResultPosition(
+                  for: selectedQuickLaunchResult.id
+              )
+        else {
+            return ""
+        }
+        return "\(position)/\(quickLaunchResults.count)"
+    }
+
+    @ViewBuilder
     private var content: some View {
         if currentItems.isEmpty {
             Label("Drop apps, files, or folders", systemImage: "plus.circle.fill")
@@ -139,91 +352,152 @@ struct DockContentView: View {
         } else {
             ForEach(Array(currentItems.enumerated()), id: \.element.id) { index, item in
                 if item.isSeparator {
-                    DockSeparatorView(
-                        orientation: orientation,
-                        iconSize: iconSize,
-                        color: chromeColor
-                    )
-                        .contentShape(Rectangle())
-                        .contextMenu {
-                            Button("Remove Separator", role: .destructive) {
-                                var updated = displayedItems ?? items
-                                updated.removeAll { $0.id == item.id }
-                                commitItems(updated)
-                            }
-                        }
-                        .onDrag {
-                            dragProvider(for: item)
-                        }
-                        .onDrop(of: [Self.dockItemType], isTargeted: nil) { providers in
-                            handleReorder(providers, targetItem: item)
-                        }
+                    separatorCell(item)
                 } else {
-                    DockItemView(
-                        item: item,
-                        iconSize: iconSize,
-                        scale: scale(for: index, in: currentItems),
-                        onActivate: { screenRect in
-                            onItemActivation(item, screenRect)
-                        },
-                        onRemove: { removeItem(item) },
-                        hoveredItem: $hoveredItem,
-                        orientation: orientation,
-                        showRunningIndicator: state.showRunningIndicators,
-                        indicatorColor: chromeColor
-                    )
-                    .frame(
-                        width: iconSize + 9,
-                        height: iconSize + 11
-                    )
-                    .opacity(draggedItem?.id == item.id ? 0.4 : 1.0)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.accentColor.opacity(dropTargetItem == item.id ? 0.9 : 0), lineWidth: 2)
-                            .padding(2)
-                    )
-                    .onDrag {
-                        dragProvider(for: item)
-                    } preview: {
-                        Image(nsImage: DockItemPresentation.resolve(item).icon)
-                            .resizable()
-                            .frame(width: iconSize, height: iconSize)
-                            .opacity(0.85)
-                    }
-                    .onDrop(of: [Self.dockItemType], isTargeted: Binding(
-                        get: { dropTargetItem == item.id },
-                        set: { dropTargetItem = $0 ? item.id : nil }
-                    )) { providers in
-                        handleReorder(providers, targetItem: item)
-                    }
+                    dockItemCell(item, at: index)
                 }
             }
 
-            Color.clear
-                .frame(
-                    width: orientation == .horizontal ? 8 : iconSize + 6,
-                    height: orientation == .horizontal ? iconSize + 6 : 8
-                )
-                .padding(orientation == .horizontal ? .leading : .top, 4)
-                .contentShape(Rectangle())
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
-                )
-                .onDrop(of: [Self.dockItemType], isTargeted: $trailingTargeted) { _ in
-                    var updatedItems = displayedItems ?? items
-                    guard let dragged = draggedItem,
-                          let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
-                    else { return false }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        updatedItems.move(
-                            fromOffsets: IndexSet(integer: fromIdx),
-                            toOffset: updatedItems.endIndex
-                        )
+            if !state.isQuickLaunchPresented {
+                Color.clear
+                    .frame(
+                        width: orientation == .horizontal ? 8 : iconSize + 6,
+                        height: orientation == .horizontal ? iconSize + 6 : 8
+                    )
+                    .padding(orientation == .horizontal ? .leading : .top, 4)
+                    .contentShape(Rectangle())
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
+                    )
+                    .onDrop(of: [Self.dockItemType], isTargeted: $trailingTargeted) { _ in
+                        var updatedItems = displayedItems ?? items
+                        guard let dragged = draggedItem,
+                              let fromIdx = updatedItems.firstIndex(where: { $0.id == dragged.id })
+                        else { return false }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            updatedItems.move(
+                                fromOffsets: IndexSet(integer: fromIdx),
+                                toOffset: updatedItems.endIndex
+                            )
+                        }
+                        draggedItem = nil
+                        commitItems(updatedItems)
+                        return true
                     }
-                    draggedItem = nil
-                    commitItems(updatedItems)
-                    return true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func separatorCell(_ item: DockItem) -> some View {
+        let separator = DockSeparatorView(
+            orientation: orientation,
+            iconSize: iconSize,
+            color: chromeColor
+        )
+        .contentShape(Rectangle())
+        .opacity(state.isQuickLaunchPresented ? 0.18 : 1)
+        .allowsHitTesting(!state.isQuickLaunchPresented)
+        .accessibilityHidden(state.isQuickLaunchPresented)
+        .contextMenu {
+            Button("Remove Separator", role: .destructive) {
+                var updated = displayedItems ?? items
+                updated.removeAll { $0.id == item.id }
+                commitItems(updated)
+            }
+        }
+
+        if state.isQuickLaunchPresented {
+            separator
+        } else {
+            separator
+                .onDrag {
+                    dragProvider(for: item)
+                }
+                .onDrop(
+                    of: [Self.dockItemType],
+                    isTargeted: nil
+                ) { providers in
+                    handleReorder(providers, targetItem: item)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func dockItemCell(
+        _ item: DockItem,
+        at index: Int
+    ) -> some View {
+        let cell = DockItemView(
+            item: item,
+            iconSize: iconSize,
+            scale: scale(for: index, in: currentItems),
+            onActivate: { screenRect in
+                onItemActivation(item, screenRect)
+            },
+            onRemove: { removeItem(item) },
+            hoveredItem: $hoveredItem,
+            orientation: orientation,
+            showRunningIndicator: state.showRunningIndicators,
+            indicatorColor: chromeColor,
+            isQuickLaunchSelected: state.isQuickLaunchPresented
+                && selectedQuickLaunchItemID == item.id,
+            quickLaunchResultPosition: quickLaunchResultPosition(
+                for: item.id
+            ),
+            quickLaunchResultCount: quickLaunchResults.count
+        )
+        .frame(
+            width: iconSize + 9,
+            height: iconSize + 11
+        )
+        .opacity(opacity(for: item))
+        .allowsHitTesting(
+            !state.isQuickLaunchPresented
+                || matchingItemIDs.contains(item.id)
+        )
+        .accessibilityHidden(
+            state.isQuickLaunchPresented
+                && !matchingItemIDs.contains(item.id)
+        )
+        .overlay { dockItemOverlay(for: item) }
+        .scaleEffect(
+            selectedQuickLaunchItemID == item.id
+                && state.isQuickLaunchPresented
+                && !reduceMotion
+                ? 1.03
+                : 1
+        )
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.12),
+            value: selectedQuickLaunchItemID
+        )
+
+        if state.isQuickLaunchPresented {
+            cell
+        } else {
+            cell
+                .onDrag {
+                    dragProvider(for: item)
+                } preview: {
+                    Image(
+                        nsImage: DockItemPresentation.resolve(item).icon
+                    )
+                    .resizable()
+                    .frame(width: iconSize, height: iconSize)
+                    .opacity(0.85)
+                }
+                .onDrop(
+                    of: [Self.dockItemType],
+                    isTargeted: Binding(
+                        get: { dropTargetItem == item.id },
+                        set: {
+                            dropTargetItem = $0 ? item.id : nil
+                        }
+                    )
+                ) { providers in
+                    handleReorder(providers, targetItem: item)
                 }
         }
     }
@@ -250,7 +524,8 @@ struct DockContentView: View {
     }
 
     private func scale(for index: Int, in items: [DockItem]) -> CGFloat {
-        guard state.magnificationEnabled,
+        guard !state.isQuickLaunchPresented,
+              state.magnificationEnabled,
               let hoveredItem,
               let hoveredIndex = items.firstIndex(where: { $0.id == hoveredItem })
         else {
@@ -266,6 +541,135 @@ struct DockContentView: View {
         case 2: return 1 + delta * 0.2
         default: return 1.0
         }
+    }
+
+    private func opacity(for item: DockItem) -> Double {
+        if state.isQuickLaunchPresented {
+            return matchingItemIDs.contains(item.id) ? 1 : 0.27
+        }
+        return draggedItem?.id == item.id ? 0.4 : 1
+    }
+
+    @ViewBuilder
+    private func dockItemOverlay(for item: DockItem) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        if state.isQuickLaunchPresented,
+           selectedQuickLaunchItemID == item.id
+        {
+            shape
+                .fill(Color.accentColor.opacity(0.16))
+                .padding(1)
+            shape
+                .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.75)
+                .padding(1.5)
+            shape
+                .strokeBorder(Color.accentColor.opacity(0.68), lineWidth: 1)
+                .padding(2.5)
+                .shadow(
+                    color: Color.accentColor.opacity(0.18),
+                    radius: 5
+                )
+        } else {
+            shape
+                .stroke(
+                    Color.accentColor.opacity(
+                        dropTargetItem == item.id ? 0.9 : 0
+                    ),
+                    lineWidth: 2
+                )
+                .padding(2)
+        }
+    }
+
+    private func quickLaunchResultPosition(
+        for itemID: DockItem.ID
+    ) -> Int? {
+        quickLaunchResultsInDockOrder.firstIndex {
+            $0.id == itemID
+        }.map { $0 + 1 }
+    }
+
+    private var quickLaunchAccessibilityValue: String {
+        let queryDescription = quickLaunchQuery.isEmpty
+            ? "All dock items"
+            : "Query \(quickLaunchQuery)"
+        guard let selectedResult = quickLaunchSelection.selectedResult(
+            in: quickLaunchResults
+        ), let position = quickLaunchResultPosition(for: selectedResult.id)
+        else {
+            return "\(queryDescription). No matches."
+        }
+        return "\(queryDescription). \(selectedResult.displayLabel), selected, \(position) of \(quickLaunchResults.count)."
+    }
+
+    private func resetQuickLaunch() {
+        quickLaunchQuery = ""
+        hoveredItem = nil
+        var selection = QuickLaunchSelection()
+        selection.reconcile(with: QuickLaunchSearch.results(
+            in: currentItems,
+            matching: ""
+        ))
+        quickLaunchSelection = selection
+    }
+
+    private func reconcileQuickLaunchSelection() {
+        guard state.isQuickLaunchPresented else { return }
+        var selection = quickLaunchSelection
+        selection.reconcile(with: quickLaunchResults)
+        quickLaunchSelection = selection
+    }
+
+    private func updateQuickLaunchSelectionFromHover(
+        _ itemID: DockItem.ID?
+    ) {
+        guard state.isQuickLaunchPresented,
+              let itemID,
+              matchingItemIDs.contains(itemID)
+        else {
+            return
+        }
+        quickLaunchSelection = QuickLaunchSelection(
+            selectedItemID: itemID
+        )
+    }
+
+    private func handleQuickLaunchCommand(
+        _ command: QuickLaunchSearchField.Command
+    ) {
+        guard state.isQuickLaunchPresented else { return }
+
+        switch command {
+        case .moveLeft, .moveUp, .previous:
+            moveQuickLaunchSelection(.previous)
+        case .moveRight, .moveDown, .next:
+            moveQuickLaunchSelection(.next)
+        case .activate:
+            activateQuickLaunchSelection()
+        case .dismiss:
+            onQuickLaunchDismiss()
+        }
+    }
+
+    private func moveQuickLaunchSelection(
+        _ direction: QuickLaunchNavigationDirection
+    ) {
+        var selection = quickLaunchSelection
+        selection.move(direction, in: quickLaunchResultsInDockOrder)
+        quickLaunchSelection = selection
+    }
+
+    private func activateQuickLaunchSelection() {
+        guard let result = quickLaunchSelection.selectedResult(
+            in: quickLaunchResults
+        ) else {
+            NSSound.beep()
+            return
+        }
+        onItemActivation(
+            result.item,
+            .zero
+        )
     }
 
     private var dropZoneHighlight: some View {
@@ -397,6 +801,9 @@ struct DockContentView: View {
     }
 
     private func dragProvider(for item: DockItem) -> NSItemProvider {
+        guard !state.isQuickLaunchPresented else {
+            return NSItemProvider()
+        }
         draggedItem = item
         let provider = NSItemProvider()
         provider.registerDataRepresentation(
@@ -410,6 +817,7 @@ struct DockContentView: View {
     }
 
     private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {
+        guard !state.isQuickLaunchPresented else { return false }
         var updatedItems = displayedItems ?? items
         guard
             let dragged = draggedItem,

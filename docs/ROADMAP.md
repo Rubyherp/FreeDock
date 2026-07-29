@@ -13,13 +13,13 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Persisted dock positions and size
 - Saved dock profiles for activities such as Work, Design, and Focus
 - Global shortcuts to reveal docks and switch profiles
+- Quick Launch search and keyboard navigation for the nearest dock
 - A dedicated preferences window for per-dock behavior and appearance
 - Optional, append-only import of pinned apps from the macOS Dock
 - Stable per-display dock placement with disconnect and reconnect recovery
 
-## Next: find and launch faster
+## Next: open files faster
 
-- Search and keyboard navigation across pinned items
 - Dragging compatible files onto an app to open them
 
 ## Quality bar

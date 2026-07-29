@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 class DockState: ObservableObject {
+    @Published var name: String
     @Published var iconSize: Double
     @Published var magnificationEnabled: Bool
     @Published var magnification: Double
@@ -12,8 +13,11 @@ class DockState: ObservableObject {
     @Published var cornerRadius: Double
     @Published var shadowStrength: Double
     @Published var showRunningIndicators: Bool
+    @Published private(set) var isQuickLaunchPresented = false
+    @Published private(set) var quickLaunchFocusGeneration = 0
 
     init(config: DockConfig) {
+        name = config.name
         iconSize = config.iconSize
         magnificationEnabled = config.magnificationEnabled
         magnification = config.magnification
@@ -27,6 +31,7 @@ class DockState: ObservableObject {
     }
 
     func apply(_ config: DockConfig) {
+        name = config.name
         iconSize = config.iconSize
         magnificationEnabled = config.magnificationEnabled
         magnification = config.magnification
@@ -37,5 +42,14 @@ class DockState: ObservableObject {
         cornerRadius = config.cornerRadius
         shadowStrength = config.shadowStrength
         showRunningIndicators = config.showRunningIndicators
+    }
+
+    func presentQuickLaunch() {
+        isQuickLaunchPresented = true
+        quickLaunchFocusGeneration &+= 1
+    }
+
+    func dismissQuickLaunch() {
+        isQuickLaunchPresented = false
     }
 }

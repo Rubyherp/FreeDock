@@ -359,6 +359,11 @@ func globalShortcutProfileKeys() {
     #expect(GlobalShortcutManager.profileKeyCodes.count == 9)
     #expect(Set(GlobalShortcutManager.profileKeyCodes).count == 9)
     #expect(GlobalShortcutManager.standardModifiers != 0)
+    #expect(GlobalShortcutManager.quickLaunchModifiers != 0)
+    #expect(
+        GlobalShortcutManager.quickLaunchModifiers
+            != GlobalShortcutManager.standardModifiers
+    )
 }
 
 @MainActor
@@ -378,6 +383,7 @@ func dockStateAppliesAdvancedAppearance() {
 
     state.apply(updated)
 
+    #expect(state.name == "Updated")
     #expect(!state.magnificationEnabled)
     #expect(state.magnification == 1.65)
     #expect(state.appearance == .dark)
@@ -385,6 +391,27 @@ func dockStateAppliesAdvancedAppearance() {
     #expect(state.blurStyle == .strong)
     #expect(state.cornerRadius == 28)
     #expect(state.shadowStrength == 1.75)
+}
+
+@MainActor
+@Test("Dock state keeps Quick Launch transient and focusable")
+func dockStateQuickLaunchSession() {
+    let state = DockState(config: DockConfig(name: "Searchable"))
+    let initialGeneration = state.quickLaunchFocusGeneration
+
+    state.presentQuickLaunch()
+
+    #expect(state.isQuickLaunchPresented)
+    #expect(state.quickLaunchFocusGeneration == initialGeneration + 1)
+
+    state.apply(DockConfig(name: "Renamed"))
+
+    #expect(state.name == "Renamed")
+    #expect(state.isQuickLaunchPresented)
+
+    state.dismissQuickLaunch()
+
+    #expect(!state.isQuickLaunchPresented)
 }
 
 @MainActor

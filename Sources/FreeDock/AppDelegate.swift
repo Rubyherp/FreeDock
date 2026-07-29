@@ -23,6 +23,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenParametersWorkItem: DispatchWorkItem?
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
     private var folderStackController: FolderStackPanelController?
+    private var quickLaunchSession: QuickLaunchSession?
+    private var quickLaunchResizeWorkItem: DispatchWorkItem?
+    private var hideRestoredDocksAfterFolderStack = false
+
+    private struct QuickLaunchSession {
+        let dockID: UUID
+        let interactionToken: UUID
+        let restingFrame: NSRect
+        let previousApplication: NSRunningApplication?
+        let restoredHiddenProfile: Bool
+    }
 
     private struct RuntimeDisplayState {
         var effectiveDisplayID: UUID?
@@ -58,12 +69,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         screenParametersWorkItem?.cancel()
+        endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         saveAllPositions()
         configManager.saveImmediately()
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
+        endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         for panel in dockPanels.values {
             panel.revealImmediately()
@@ -128,6 +141,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         toggleProfileItem.keyEquivalentModifierMask = [.control, .option]
         toggleProfileItem.isEnabled = !configManager.config.docks.isEmpty
         menu.addItem(toggleProfileItem)
+
+        let quickLaunchItem = NSMenuItem(
+            title: "Quick Launch…",
+            action: #selector(toggleQuickLaunch),
+            keyEquivalent: " "
+        )
+        quickLaunchItem.keyEquivalentModifierMask = [.command, .shift]
+        quickLaunchItem.isEnabled = !configManager.config.docks.isEmpty
+        quickLaunchItem.target = self
+        menu.addItem(quickLaunchItem)
         menu.addItem(.separator())
 
         let newSub = NSMenu()
@@ -771,6 +794,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutManager.register(id: 1, keyCode: GlobalShortcutManager.showHideKeyCode) { [weak self] in
             self?.toggleActiveProfileDocks()
         }
+        let didRegisterQuickLaunch = shortcutManager.register(
+            id: 100,
+            keyCode: GlobalShortcutManager.quickLaunchKeyCode,
+            modifiers: GlobalShortcutManager.quickLaunchModifiers
+        ) { [weak self] in
+            self?.toggleQuickLaunch()
+        }
+        if !didRegisterQuickLaunch {
+            NSLog("FreeDock could not register the global Quick Launch shortcut Command-Shift-Space.")
+        }
 
         for (index, profile) in configManager.config.profiles.prefix(9).enumerated() {
             shortcutManager.register(
@@ -780,6 +813,156 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.activateProfile(profile.id)
             }
         }
+    }
+
+    @objc private func toggleQuickLaunch() {
+        if quickLaunchSession != nil {
+            endQuickLaunch(reactivatePreviousApplication: true)
+            return
+        }
+
+        closeFolderStack()
+        TooltipManager.shared.hide()
+
+        let restoredHiddenProfile = dockPanels.isEmpty
+        if restoredHiddenProfile, !configManager.config.docks.isEmpty {
+            restoreDocks()
+            scheduleMenuRefresh()
+        }
+
+        guard let panel = quickLaunchTargetPanel(),
+              let state = dockStates[panel.dockID]
+        else {
+            NSSound.beep()
+            return
+        }
+
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
+        let previousApplication = frontmostApplication?.processIdentifier
+            == ProcessInfo.processInfo.processIdentifier
+            ? nil
+            : frontmostApplication
+        let interactionToken = panel.beginTransientInteraction()
+        panel.setPositionLocked(true)
+        quickLaunchSession = QuickLaunchSession(
+            dockID: panel.dockID,
+            interactionToken: interactionToken,
+            restingFrame: panel.frameForPersistence,
+            previousApplication: previousApplication,
+            restoredHiddenProfile: restoredHiddenProfile
+        )
+
+        panel.setQuickLaunchKeyMode(true)
+        state.presentQuickLaunch()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+        resizeAfterQuickLaunchTransition(panel)
+    }
+
+    private func quickLaunchTargetPanel() -> DockPanel? {
+        let orderedDocks = configManager.config.docks
+        if let keyPanel = orderedDocks.lazy.compactMap({
+            self.dockPanels[$0.id]
+        }).first(where: \.isKeyWindow) {
+            return keyPanel
+        }
+
+        let pointer = NSEvent.mouseLocation
+        let pointerScreen = NSScreen.screens.first {
+            $0.frame.contains(pointer)
+        }
+        let candidates = orderedDocks.enumerated().compactMap {
+            order, dock -> QuickLaunchDockCandidate? in
+            guard let panel = dockPanels[dock.id] else { return nil }
+            return QuickLaunchDockCandidate(
+                dockID: dock.id,
+                frame: panel.frameForPersistence,
+                configOrder: order
+            )
+        }
+        guard let targetID = QuickLaunchDockRouter.targetDockID(
+            for: pointer,
+            pointerScreenFrame: pointerScreen?.frame,
+            candidates: candidates
+        ) else {
+            return nil
+        }
+        return dockPanels[targetID]
+    }
+
+    @discardableResult
+    private func endQuickLaunch(
+        ifDockID dockID: UUID? = nil,
+        reactivatePreviousApplication: Bool,
+        restoreHiddenProfile: Bool = true
+    ) -> Bool {
+        guard let session = quickLaunchSession,
+              dockID == nil || session.dockID == dockID
+        else {
+            return false
+        }
+
+        quickLaunchSession = nil
+        quickLaunchResizeWorkItem?.cancel()
+        quickLaunchResizeWorkItem = nil
+
+        let panel = dockPanels[session.dockID]
+        dockStates[session.dockID]?.dismissQuickLaunch()
+        panel?.setFrame(session.restingFrame, display: true)
+        panel?.endTransientInteraction(session.interactionToken)
+        panel?.setPositionLocked(_lockPositions)
+        if panel?.isKeyWindow == true {
+            panel?.resignKey()
+        }
+        panel?.setQuickLaunchKeyMode(false)
+        if session.restoredHiddenProfile, restoreHiddenProfile {
+            hideDocksRestoredForQuickLaunch()
+        } else if let panel {
+            resizeAfterQuickLaunchTransition(panel)
+        }
+
+        if reactivatePreviousApplication,
+           let previousApplication = session.previousApplication,
+           !previousApplication.isTerminated
+        {
+            DispatchQueue.main.async {
+                previousApplication.activate(
+                    options: [.activateIgnoringOtherApps]
+                )
+            }
+        }
+        return session.restoredHiddenProfile
+    }
+
+    private func resizeAfterQuickLaunchTransition(_ panel: DockPanel) {
+        quickLaunchResizeWorkItem?.cancel()
+        let dockID = panel.dockID
+        let work = DispatchWorkItem { [weak self, weak panel] in
+            guard let self else { return }
+            self.quickLaunchResizeWorkItem = nil
+            guard let panel,
+                  self.dockPanels[dockID] === panel
+            else {
+                return
+            }
+            panel.resizeToFitContent()
+            self.updateAutoHideGeometry(for: panel)
+        }
+        quickLaunchResizeWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + (1.0 / 60.0),
+            execute: work
+        )
+    }
+
+    private func hideDocksRestoredForQuickLaunch() {
+        hideRestoredDocksAfterFolderStack = false
+        quickLaunchResizeWorkItem?.cancel()
+        quickLaunchResizeWorkItem = nil
+        guard !dockPanels.isEmpty else { return }
+        closeAllDockPanels()
+        scheduleMenuRefresh()
     }
 
     @objc private func createProfile() {
@@ -1022,6 +1205,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         if let panel = dockPanels[id] {
+            endQuickLaunch(
+                ifDockID: id,
+                reactivatePreviousApplication: false
+            )
             closeFolderStack(for: id)
             cancelDockResizeWork(for: id)
             pendingAutoHideUpdates.removeValue(forKey: id)
@@ -1057,6 +1244,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func performDeleteDock(_ id: UUID) {
+        endQuickLaunch(
+            ifDockID: id,
+            reactivatePreviousApplication: false
+        )
         closeFolderStack(for: id)
         cancelDockResizeWork(for: id)
         pendingAutoHideUpdates.removeValue(forKey: id)
@@ -1162,6 +1353,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard let currentIndex = configManager.config.docks.firstIndex(where: { $0.id == id }) else { return }
             configManager.config.docks[currentIndex].name = proposedValue
+            dockStates[id]?.name = proposedValue
             configManager.save()
             rebuildMenu()
             return
@@ -1368,6 +1560,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         return
                     }
                     self.folderStackController = nil
+                    if self.hideRestoredDocksAfterFolderStack {
+                        self.hideDocksRestoredForQuickLaunch()
+                    }
                 }
             )
             folderStackController = controller
@@ -1446,8 +1641,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         else {
             return
         }
+        let shouldHideRestoredDocks =
+            hideRestoredDocksAfterFolderStack
+        hideRestoredDocksAfterFolderStack = false
         folderStackController = nil
         controller.close()
+        if shouldHideRestoredDocks {
+            hideDocksRestoredForQuickLaunch()
+        }
     }
 
     private func confirmAndClearRecentFiles() {
@@ -1783,6 +1984,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildVisibleDock(_ dockID: UUID, using config: DockConfig) {
         guard let panel = dockPanels[dockID] else { return }
 
+        endQuickLaunch(
+            ifDockID: dockID,
+            reactivatePreviousApplication: false
+        )
         closeFolderStack(for: dockID)
         cancelDockResizeWork(for: dockID)
         pendingAutoHideUpdates.removeValue(forKey: dockID)
@@ -1820,10 +2025,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             state: state,
             onItemActivation: { [weak self, weak panel] item, sourceRect in
                 guard let self, let panel else { return }
+                let restoredHiddenProfile = self.endQuickLaunch(
+                    ifDockID: dockID,
+                    reactivatePreviousApplication: false,
+                    restoreHiddenProfile: false
+                )
+                if restoredHiddenProfile, item.kind == .folder {
+                    self.hideRestoredDocksAfterFolderStack = true
+                }
                 self.activateDockItem(
                     item,
                     sourceRect: sourceRect,
                     in: panel
+                )
+                if restoredHiddenProfile
+                    && (
+                        item.kind != .folder
+                            || self.folderStackController == nil
+                    )
+                {
+                    self.hideDocksRestoredForQuickLaunch()
+                }
+            },
+            onQuickLaunchDismiss: { [weak self] in
+                self?.endQuickLaunch(
+                    ifDockID: dockID,
+                    reactivatePreviousApplication: true
                 )
             },
             onAddItemsRequested: { [weak self] in
@@ -1861,7 +2088,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.clampToVisibleFrame(on: DockDisplayManager.primaryScreen)
         }
 
-        panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         configManager.save()
     }
@@ -1873,6 +2099,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func saveAllPositions() {
+        endQuickLaunch(reactivatePreviousApplication: true)
         for panel in dockPanels.values {
             guard let display = DockDisplayGeometry.bestDisplay(
                 for: panel.frameForPersistence,
@@ -1886,6 +2113,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeAllDockPanels() {
         TooltipManager.shared.hide()
+        hideRestoredDocksAfterFolderStack = false
+        endQuickLaunch(reactivatePreviousApplication: false)
         closeFolderStack()
         for work in dockResizeWorkItems.values {
             work.cancel()
@@ -1945,6 +2174,13 @@ extension AppDelegate: DockPanelDelegate {
         _ = persistPanelPlacement(panel, userInitiated: true)
         configManager.save()
         refreshPreferencesSnapshot()
+    }
+
+    func dockPanelDidResignKey(_ panel: DockPanel) {
+        endQuickLaunch(
+            ifDockID: panel.dockID,
+            reactivatePreviousApplication: false
+        )
     }
 
     func currentIconSize(for panel: DockPanel) -> Double {

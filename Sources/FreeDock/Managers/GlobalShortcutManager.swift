@@ -4,6 +4,8 @@ import Foundation
 final class GlobalShortcutManager: @unchecked Sendable {
     static let standardModifiers = UInt32(controlKey) | UInt32(optionKey)
     static let showHideKeyCode = UInt32(kVK_Space)
+    static let quickLaunchModifiers = UInt32(cmdKey) | UInt32(shiftKey)
+    static let quickLaunchKeyCode = UInt32(kVK_Space)
     static let profileKeyCodes: [UInt32] = [
         UInt32(kVK_ANSI_1),
         UInt32(kVK_ANSI_2),

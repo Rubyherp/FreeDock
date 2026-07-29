@@ -59,5 +59,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+# SwiftPM ad-hoc signs the standalone executable. Copying it into a bundle with
+# resources changes its signing context, so sign the completed app bundle before
+# Launch Services opens it.
+codesign --force --sign - "$APP_BUNDLE"
+
 echo "==> App bundle created at $APP_BUNDLE"
 echo "    Open with: open \"$APP_BUNDLE\""

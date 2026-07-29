@@ -19,6 +19,9 @@ struct DockItemView: View {
     let orientation: Orientation
     let showRunningIndicator: Bool
     let indicatorColor: Color
+    let isQuickLaunchSelected: Bool
+    let quickLaunchResultPosition: Int?
+    let quickLaunchResultCount: Int
 
     private var resolvedPresentation: DockItemPresentation {
         presentation ?? DockItemPresentation.resolve(item)
@@ -95,6 +98,9 @@ struct DockItemView: View {
         .accessibilityLabel(resolvedPresentation.displayName)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(accessibilityHint)
+        .accessibilityAddTraits(
+            isQuickLaunchSelected ? .isSelected : []
+        )
         .onAppear(perform: refreshPresentation)
         .onChange(of: item) { _ in refreshPresentation() }
     }
@@ -191,6 +197,15 @@ struct DockItemView: View {
         }
         if !resolvedPresentation.isAvailable {
             parts.append("not available")
+        }
+        if isQuickLaunchSelected,
+           let quickLaunchResultPosition,
+           quickLaunchResultCount > 0
+        {
+            parts.append("selected")
+            parts.append(
+                "\(quickLaunchResultPosition) of \(quickLaunchResultCount)"
+            )
         }
         return parts.joined(separator: ", ")
     }

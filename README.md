@@ -51,6 +51,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Unlimited docks** — Create as many docks as you need, on any screen
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
+- **Quick Launch** — Press `⌘⇧Space`, type to search the nearest dock, choose with arrows or Tab, and press Return to open
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
@@ -110,6 +111,7 @@ make run
 6. Use a stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder them, or drag the empty space around the dock to reposition it
 8. Right-click an item to open or reveal it, copy its path, or remove it
+9. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
@@ -117,7 +119,7 @@ make run
 
 **Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
-**Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
+**Shortcuts:** Press `⌘⇧Space` for Quick Launch. Type to narrow the pinned items in the dock nearest your pointer, use the arrow keys or Tab and Shift-Tab to move the selection, press Return to open it, or Escape to close. Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 
 ## Configuration
 

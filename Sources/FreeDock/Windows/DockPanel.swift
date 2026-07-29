@@ -33,13 +33,21 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private var resizeInteractionTokens = Set<UUID>()
     private var resizeReferenceFrame: NSRect?
     private var resizeReferenceEdge: DockScreenEdge?
+    private var quickLaunchKeyModeEnabled = false
 
     private let edgeTolerance: CGFloat = 2
     private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
 
+    override var canBecomeKey: Bool { quickLaunchKeyModeEnabled }
+    override var canBecomeMain: Bool { false }
+
     /// The frame users expect to restore to, even while an edge-docked panel is hidden.
     var frameForPersistence: NSRect {
         shownFrame ?? frame
+    }
+
+    var dockedEdgeForLayout: DockScreenEdge? {
+        resizeAnchorEdge(for: frameForPersistence)
     }
 
     private func enforcedSize(for intrinsicSize: NSSize) -> NSSize {
@@ -102,6 +110,14 @@ class DockPanel: NSPanel, NSWindowDelegate {
         }
         moveCompletionWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    func windowDidResignKey(_: Notification) {
+        dockDelegate?.dockPanelDidResignKey(self)
+    }
+
+    func setQuickLaunchKeyMode(_ enabled: Bool) {
+        quickLaunchKeyModeEnabled = enabled
     }
 
     func setPositionLocked(_ locked: Bool) {
@@ -339,6 +355,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
         resizeInteractionTokens.removeAll()
         resizeReferenceFrame = nil
         resizeReferenceEdge = nil
+        quickLaunchKeyModeEnabled = false
         isUserMovingWindow = false
         isAutoHidden = false
         isAutoHideRevealInProgress = false
