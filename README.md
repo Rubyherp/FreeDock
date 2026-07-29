@@ -51,7 +51,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Unlimited docks** — Create as many docks as you need, on any screen
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
-- **Live per-dock preferences** — Tune appearance, magnification, spacing, orientation, indicators, and auto-hide
+- **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Drag & drop** — Drag `.app` files from Finder directly onto a dock
 - **Reorder** — Drag icons within a dock to rearrange them
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
@@ -130,9 +130,13 @@ Docks and profiles are saved to `~/.config/freedock.json`. The file is human-rea
           "position": [100, 100],
           "orientation": "horizontal",
           "iconSize": 48,
+          "magnificationEnabled": true,
           "magnification": 1.3,
           "itemSpacing": 3,
           "appearance": "glass",
+          "surfaceOpacity": 1,
+          "blurStyle": "regular",
+          "shadowStrength": 1,
           "cornerRadius": 18,
           "showRunningIndicators": true,
           "autoHideWhenDocked": true,

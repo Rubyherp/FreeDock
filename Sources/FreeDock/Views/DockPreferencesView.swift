@@ -248,11 +248,46 @@ struct DockPreferencesView: View {
                         Divider()
 
                         sliderRow(
+                            title: "Opacity",
+                            value: surfaceOpacityBinding,
+                            range: DockConfig.surfaceOpacityRange,
+                            step: 0.05,
+                            valueText: String(format: "%.0f%%", dock.surfaceOpacity * 100)
+                        )
+
+                        Divider()
+
+                        settingRow("Glass blur") {
+                            Picker("Glass blur", selection: blurStyleBinding) {
+                                ForEach(DockBlurStyle.allCases, id: \.self) { style in
+                                    Text(style.displayName).tag(style)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 250)
+                        }
+                        .disabled(dock.appearance != .glass)
+                        .opacity(dock.appearance == .glass ? 1 : 0.48)
+
+                        Divider()
+
+                        sliderRow(
                             title: "Corner radius",
                             value: cornerRadiusBinding,
                             range: DockConfig.cornerRadiusRange,
                             step: 1,
                             valueText: "\(Int(dock.cornerRadius)) px"
+                        )
+
+                        Divider()
+
+                        sliderRow(
+                            title: "Shadow",
+                            value: shadowStrengthBinding,
+                            range: DockConfig.shadowStrengthRange,
+                            step: 0.05,
+                            valueText: String(format: "%.0f%%", dock.shadowStrength * 100)
                         )
                     }
 
@@ -270,13 +305,24 @@ struct DockPreferencesView: View {
 
                         Divider()
 
+                        settingRow("Magnification") {
+                            Toggle("", isOn: magnificationEnabledBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .accessibilityLabel("Magnification")
+                        }
+
+                        Divider()
+
                         sliderRow(
-                            title: "Magnification",
+                            title: "Magnification scale",
                             value: magnificationBinding,
                             range: DockConfig.magnificationRange,
                             step: 0.05,
                             valueText: String(format: "%.2f×", dock.magnification)
                         )
+                        .disabled(!dock.magnificationEnabled)
+                        .opacity(dock.magnificationEnabled ? 1 : 0.48)
 
                         Divider()
 
@@ -475,6 +521,13 @@ struct DockPreferencesView: View {
         )
     }
 
+    private var magnificationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { store.selectedDock?.magnificationEnabled ?? true },
+            set: { store.updateSelected(.magnificationEnabled($0)) }
+        )
+    }
+
     private var itemSpacingBinding: Binding<Double> {
         Binding(
             get: { store.selectedDock?.itemSpacing ?? 3 },
@@ -489,10 +542,31 @@ struct DockPreferencesView: View {
         )
     }
 
+    private var surfaceOpacityBinding: Binding<Double> {
+        Binding(
+            get: { store.selectedDock?.surfaceOpacity ?? 1 },
+            set: { store.updateSelected(.surfaceOpacity($0)) }
+        )
+    }
+
+    private var blurStyleBinding: Binding<DockBlurStyle> {
+        Binding(
+            get: { store.selectedDock?.blurStyle ?? .regular },
+            set: { store.updateSelected(.blurStyle($0)) }
+        )
+    }
+
     private var cornerRadiusBinding: Binding<Double> {
         Binding(
             get: { store.selectedDock?.cornerRadius ?? 18 },
             set: { store.updateSelected(.cornerRadius($0)) }
+        )
+    }
+
+    private var shadowStrengthBinding: Binding<Double> {
+        Binding(
+            get: { store.selectedDock?.shadowStrength ?? 1 },
+            set: { store.updateSelected(.shadowStrength($0)) }
         )
     }
 

@@ -32,7 +32,8 @@ struct DockContentView: View {
     }
 
     private var magnificationHeadroom: CGFloat {
-        max(10, iconSize * (state.magnification - 1 + 0.04))
+        guard state.magnificationEnabled else { return 10 }
+        return max(10, iconSize * (state.magnification - 1 + 0.04))
     }
 
     private var chromeColor: Color {
@@ -220,7 +221,8 @@ struct DockContentView: View {
     }
 
     private func scale(for index: Int, in items: [DockItem]) -> CGFloat {
-        guard let hoveredItem,
+        guard state.magnificationEnabled,
+              let hoveredItem,
               let hoveredIndex = items.firstIndex(where: { $0.id == hoveredItem })
         else {
             return 1.0
@@ -246,17 +248,16 @@ struct DockContentView: View {
     private var dockSurface: some View {
         let shape = RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous)
         return ZStack {
-            shape
-                .fill(.regularMaterial)
-                .opacity(state.appearance == .glass ? 1 : 0)
+            glassMaterial(for: shape)
+                .opacity(state.appearance == .glass ? state.surfaceOpacity : 0)
 
             shape
                 .fill(Color(red: 0.96, green: 0.96, blue: 0.97).opacity(0.94))
-                .opacity(state.appearance == .light ? 1 : 0)
+                .opacity(state.appearance == .light ? state.surfaceOpacity : 0)
 
             shape
                 .fill(Color(red: 0.075, green: 0.078, blue: 0.09).opacity(0.92))
-                .opacity(state.appearance == .dark ? 1 : 0)
+                .opacity(state.appearance == .dark ? state.surfaceOpacity : 0)
 
             shape.fill(
                 LinearGradient(
@@ -265,7 +266,7 @@ struct DockContentView: View {
                     endPoint: .bottom
                 )
             )
-            .opacity(state.appearance == .glass ? 1 : 0)
+            .opacity(state.appearance == .glass ? state.surfaceOpacity : 0)
         }
         .overlay {
             shape.strokeBorder(
@@ -276,14 +277,34 @@ struct DockContentView: View {
                 ),
                 lineWidth: 0.75
             )
+            .opacity(state.surfaceOpacity)
         }
         .shadow(
-            color: .black.opacity(state.appearance == .dark ? 0.32 : 0.22),
+            color: .black.opacity(
+                (state.appearance == .dark ? 0.32 : 0.22) * state.shadowStrength
+            ),
             radius: 16,
             x: 0,
             y: 8
         )
-        .shadow(color: .black.opacity(0.10), radius: 2, x: 0, y: 1)
+        .shadow(
+            color: .black.opacity(0.10 * state.shadowStrength),
+            radius: 2,
+            x: 0,
+            y: 1
+        )
+    }
+
+    @ViewBuilder
+    private func glassMaterial(for shape: RoundedRectangle) -> some View {
+        switch state.blurStyle {
+        case .light:
+            shape.fill(.ultraThinMaterial)
+        case .regular:
+            shape.fill(.regularMaterial)
+        case .strong:
+            shape.fill(.thickMaterial)
+        }
     }
 
     private var surfaceBorderColors: [Color] {

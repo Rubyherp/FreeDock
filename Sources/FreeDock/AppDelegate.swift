@@ -837,8 +837,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         switch change {
         case .iconSize, .autoHideWhenDocked:
             scheduleMenuRefresh()
-        case .orientation, .magnification, .itemSpacing, .appearance,
-             .cornerRadius, .showRunningIndicators, .autoHideDelay:
+        case .orientation, .magnificationEnabled, .magnification,
+             .itemSpacing, .appearance, .surfaceOpacity, .blurStyle,
+             .cornerRadius, .shadowStrength, .showRunningIndicators,
+             .autoHideDelay:
             break
         }
     }
@@ -858,6 +860,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let geometryChanged = previous.iconSize != updated.iconSize
+            || previous.magnificationEnabled != updated.magnificationEnabled
             || previous.magnification != updated.magnification
             || previous.itemSpacing != updated.itemSpacing
         let autoHideChanged = previous.autoHideWhenDocked != updated.autoHideWhenDocked

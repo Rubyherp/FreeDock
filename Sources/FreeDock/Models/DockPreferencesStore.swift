@@ -3,10 +3,14 @@ import SwiftUI
 enum DockPreferenceChange: Equatable {
     case orientation(Orientation)
     case iconSize(Double)
+    case magnificationEnabled(Bool)
     case magnification(Double)
     case itemSpacing(Double)
     case appearance(DockAppearance)
+    case surfaceOpacity(Double)
+    case blurStyle(DockBlurStyle)
     case cornerRadius(Double)
+    case shadowStrength(Double)
     case showRunningIndicators(Bool)
     case autoHideWhenDocked(Bool)
     case autoHideDelay(Double)
@@ -32,14 +36,22 @@ extension DockConfig {
             orientation = value
         case let .iconSize(value):
             iconSize = Self.clamp(value, to: Self.iconSizeRange)
+        case let .magnificationEnabled(value):
+            magnificationEnabled = value
         case let .magnification(value):
             magnification = Self.clamp(value, to: Self.magnificationRange)
         case let .itemSpacing(value):
             itemSpacing = Self.clamp(value, to: Self.itemSpacingRange)
         case let .appearance(value):
             appearance = value
+        case let .surfaceOpacity(value):
+            surfaceOpacity = Self.clamp(value, to: Self.surfaceOpacityRange)
+        case let .blurStyle(value):
+            blurStyle = value
         case let .cornerRadius(value):
             cornerRadius = Self.clamp(value, to: Self.cornerRadiusRange)
+        case let .shadowStrength(value):
+            shadowStrength = Self.clamp(value, to: Self.shadowStrengthRange)
         case let .showRunningIndicators(value):
             showRunningIndicators = value
         case let .autoHideWhenDocked(value):
