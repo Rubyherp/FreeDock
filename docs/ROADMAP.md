@@ -11,6 +11,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Recent Files and Downloads smart stacks, with a local, clearable 50-document history and dynamic Downloads resolution
 - Native magnification, running-app indicators, tooltips, and launch animation
 - Native context menus for app lifecycle actions, document Open With, and direct stack configuration
+- Direct Finder file and folder drops onto pinned applications
 - Edge snapping and slide-away auto-hide, configurable per dock
 - Persisted dock positions and size
 - Saved dock profiles for activities such as Work, Design, and Focus
@@ -19,10 +20,6 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - A dedicated preferences window for per-dock behavior and appearance
 - Optional, append-only import of pinned apps from the macOS Dock
 - Stable per-display dock placement with disconnect and reconnect recovery
-
-## Next: open files faster
-
-- Dragging compatible files onto an app to open them
 
 ## Quality bar
 

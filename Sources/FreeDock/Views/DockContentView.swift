@@ -29,6 +29,15 @@ struct DockContentView: View {
         DockItem,
         URL
     ) -> Void
+    let onOpenFilesWithApplication: @MainActor (
+        DockItem,
+        [URL]
+    ) -> Bool
+    let onCanOpenFilesWithApplication: @MainActor (
+        DockItem,
+        [URL]
+    ) -> Bool
+    let onChooseFilesForApplication: @MainActor (DockItem) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var iconSize: Double {
@@ -40,7 +49,16 @@ struct DockContentView: View {
     @State private var displayedItems: [DockItem]?
     @State private var hoveredItem: UUID?
     @State private var dropTargetItem: UUID?
+    @State private var applicationFileDropTargetItem: UUID?
+    @State private var applicationFileDropPresentation:
+        ApplicationFileDropPresentation?
+    @State private var applicationFileDropURLs: [URL]?
+    @State private var applicationFileDropPreflightID: UUID?
     @State private var trailingTargeted = false
+    @State private var externalFileDropClaimState =
+        DockExternalFileDropClaimState()
+    @State private var externalFileDropInteractionToken: UUID?
+    @State private var externalFileDropExpiryWorkItem: DispatchWorkItem?
     @State private var quickLaunchQuery = ""
     @State private var quickLaunchSelection = QuickLaunchSelection()
 
@@ -111,7 +129,10 @@ struct DockContentView: View {
                 guard !state.isQuickLaunchPresented else { return false }
                 return handleFileDrop(providers)
             }
-            .onChange(of: isTargeted) { targeted in updateDropPulse(targeted) }
+            .onChange(of: isTargeted) { targeted in
+                updateDropPulse(targeted)
+                updateExternalFileDropTargeting(targeted)
+            }
             .onAppear {
                 displayedItems = items
                 if state.isQuickLaunchPresented {
@@ -140,6 +161,7 @@ struct DockContentView: View {
             .onChange(of: hoveredItem) { itemID in
                 updateQuickLaunchSelectionFromHover(itemID)
             }
+            .onDisappear(perform: tearDownExternalFileDropInteraction)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("\(state.name) dock")
             .contextMenu {
@@ -518,6 +540,9 @@ struct DockContentView: View {
             onOpenDocumentWithApplication: { applicationURL in
                 onOpenDocumentWithApplication(item, applicationURL)
             },
+            onChooseFilesForApplication: {
+                onChooseFilesForApplication(item)
+            },
             hoveredItem: $hoveredItem,
             orientation: orientation,
             showRunningIndicator: state.showRunningIndicators,
@@ -558,7 +583,7 @@ struct DockContentView: View {
             value: selectedQuickLaunchItemID
         )
 
-        cell
+        let interactiveCell = cell
             .onDrag {
                 dragProvider(for: item)
             } preview: {
@@ -576,6 +601,50 @@ struct DockContentView: View {
                     isTargeted: dropTargetBinding(for: item.id)
                 )
             )
+
+        applicationFileDropTarget(interactiveCell, for: item)
+    }
+
+    @ViewBuilder
+    private func applicationFileDropTarget<Content: View>(
+        _ content: Content,
+        for item: DockItem
+    ) -> some View {
+        if canTargetApplicationFileDrop(item) {
+            content.onDrop(
+                of: [.fileURL],
+                delegate: DockApplicationFileDropDelegate(
+                    isEnabled: itemDragCoordinator.activeSession == nil
+                        && !externalFileDropClaimState
+                            .isOperationInProgress,
+                    isRejected: applicationFileDropTargetItem == item.id
+                        && applicationFileDropPresentation == .rejected,
+                    onEntered: { providers in
+                        beginApplicationFileDropPreflight(
+                            providers,
+                            onto: item
+                        )
+                    },
+                    onExited: {
+                        endApplicationFileDropPreflight(
+                            itemID: item.id
+                        )
+                    },
+                    onClaim: {
+                        claimApplicationFileDrop(itemID: item.id)
+                    },
+                    onPerform: { providers, operationID in
+                        handleApplicationFileDrop(
+                            providers,
+                            onto: item,
+                            operationID: operationID
+                        )
+                    }
+                )
+            )
+        } else {
+            content
+        }
     }
 
     struct DockSeparatorView: View {
@@ -632,7 +701,45 @@ struct DockContentView: View {
     @ViewBuilder
     private func dockItemOverlay(for item: DockItem) -> some View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        if state.isQuickLaunchPresented,
+        if applicationFileDropTargetItem == item.id,
+           applicationFileDropPresentation != .pin
+        {
+            let isRejected = applicationFileDropPresentation == .rejected
+            let isChecking = applicationFileDropPresentation == .checking
+            let highlightColor: Color = isRejected
+                ? .red
+                : (isChecking ? .gray : .accentColor)
+            let badgeSymbol = isRejected
+                ? "xmark"
+                : (isChecking ? "ellipsis" : "arrow.up.forward")
+
+            shape
+                .fill(highlightColor.opacity(0.18))
+                .padding(1)
+            shape
+                .strokeBorder(highlightColor, lineWidth: 2)
+                .padding(1.5)
+                .shadow(
+                    color: highlightColor.opacity(0.32),
+                    radius: 6
+                )
+            Image(systemName: badgeSymbol)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 16, height: 16)
+                .background(highlightColor, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(.white.opacity(0.55), lineWidth: 0.75)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    maxHeight: .infinity,
+                    alignment: .bottomTrailing
+                )
+                .padding(2)
+                .accessibilityHidden(true)
+        } else if state.isQuickLaunchPresented,
            selectedQuickLaunchItemID == item.id
         {
             shape
@@ -821,9 +928,30 @@ struct DockContentView: View {
 
     private var dropZoneHighlight: some View {
         RoundedRectangle(cornerRadius: surfaceCornerRadius)
-            .stroke(isTargeted ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55) : Color.clear, lineWidth: 2)
-            .shadow(color: isTargeted ? Color.accentColor.opacity(dropPulse ? 0.35 : 0.12) : Color.clear, radius: dropPulse ? 7 : 2)
+            .stroke(
+                showsDockWideFileDropHighlight
+                    ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55)
+                    : Color.clear,
+                lineWidth: 2
+            )
+            .shadow(
+                color: showsDockWideFileDropHighlight
+                    ? Color.accentColor.opacity(dropPulse ? 0.35 : 0.12)
+                    : Color.clear,
+                radius: dropPulse ? 7 : 2
+            )
             .allowsHitTesting(false)
+    }
+
+    private var showsDockWideFileDropHighlight: Bool {
+        guard !externalFileDropClaimState.isOperationInProgress
+        else {
+            return false
+        }
+        if applicationFileDropTargetItem != nil {
+            return applicationFileDropPresentation == .pin
+        }
+        return isTargeted
     }
 
     private var dockSurface: some View {
@@ -917,35 +1045,400 @@ struct DockContentView: View {
     }
 
     private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
-        let relevant = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        if externalFileDropClaimState.shouldSuppressParentPinDrop {
+            return true
+        }
+        guard !externalFileDropClaimState.isOperationInProgress else {
+            NSSound.beep()
+            return false
+        }
+
+        let relevant = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(
+                UTType.fileURL.identifier
+            )
+        }
         guard !relevant.isEmpty else { return false }
 
-        let accumulator = OrderedFileDropAccumulator(count: relevant.count)
-        for (index, provider) in relevant.enumerated() {
+        let operationID = beginExternalFileDropOperation()
+        loadFileDropProviders(relevant) { result in
+            guard externalFileDropClaimState.activeOperationID
+                    == operationID
+            else {
+                return
+            }
+            if result.failedInputIndices.isEmpty {
+                addDroppedItems(result.urls)
+            } else {
+                NSSound.beep()
+            }
+            finishExternalFileDropOperation(operationID)
+        }
+        return true
+    }
+
+    private func handleApplicationFileDrop(
+        _ providers: [NSItemProvider],
+        onto item: DockItem,
+        operationID: UUID
+    ) -> Bool {
+        let relevant = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(
+                UTType.fileURL.identifier
+            )
+        }
+        guard !relevant.isEmpty else {
+            NSSound.beep()
+            finishExternalFileDropOperation(operationID)
+            return true
+        }
+
+        guard applicationFileDropPresentation != .rejected else {
+            NSSound.beep()
+            finishExternalFileDropOperation(operationID)
+            return true
+        }
+
+        if let applicationFileDropURLs {
+            performApplicationFileDrop(
+                applicationFileDropURLs,
+                onto: item
+            )
+            finishExternalFileDropOperation(operationID)
+            return true
+        }
+
+        loadFileDropProviders(relevant) { result in
+            guard externalFileDropClaimState.activeOperationID
+                    == operationID
+            else {
+                return
+            }
+            if result.failedInputIndices.isEmpty {
+                performApplicationFileDrop(
+                    result.urls,
+                    onto: item
+                )
+            } else {
+                NSSound.beep()
+            }
+            finishExternalFileDropOperation(operationID)
+        }
+        return true
+    }
+
+    private func performApplicationFileDrop(
+        _ urls: [URL],
+        onto item: DockItem
+    ) {
+        if urls.contains(where: shouldPinAsDockItem) {
+            addDroppedItems(urls)
+            return
+        }
+
+        guard onCanOpenFilesWithApplication(item, urls) else {
+            NSSound.beep()
+            return
+        }
+        _ = onOpenFilesWithApplication(item, urls)
+    }
+
+    private func shouldPinAsDockItem(_ url: URL) -> Bool {
+        url.pathExtension.caseInsensitiveCompare("app")
+            == .orderedSame
+            || DockItem.pinnedItem(at: url)?.kind == .application
+    }
+
+    private func loadFileDropProviders(
+        _ providers: [NSItemProvider],
+        completion: @escaping @MainActor (
+            OrderedFileDropLoadResult
+        ) -> Void
+    ) {
+        let accumulator = OrderedFileDropAccumulator(
+            count: providers.count
+        )
+        for (index, provider) in providers.enumerated() {
             provider.loadDataRepresentation(
                 forTypeIdentifier: UTType.fileURL.identifier
             ) { data, _ in
                 let url = data.flatMap {
                     URL(dataRepresentation: $0, relativeTo: nil)
                 }
-                guard let completedURLs = accumulator.store(
+                guard let result = accumulator.store(
                     url,
                     at: index
                 ) else {
                     return
                 }
-
                 DispatchQueue.main.async {
-                    let plan = DockItemPlanner.planAdding(
-                        urls: completedURLs,
-                        to: displayedItems ?? items
-                    )
-                    guard plan.addedCount > 0 else { return }
-                    commitItems(plan.items)
+                    completion(result)
                 }
             }
         }
-        return true
+    }
+
+    private func addDroppedItems(_ urls: [URL]) {
+        let plan = DockItemPlanner.planAdding(
+            urls: urls,
+            to: displayedItems ?? items
+        )
+        guard plan.addedCount > 0 else { return }
+        commitItems(plan.items)
+    }
+
+    private func canTargetApplicationFileDrop(
+        _ item: DockItem
+    ) -> Bool {
+        !state.isQuickLaunchPresented
+            && item.kind == .application
+            && item.fileURL != nil
+    }
+
+    private func beginApplicationFileDropPreflight(
+        _ providers: [NSItemProvider],
+        onto item: DockItem
+    ) {
+        guard !externalFileDropClaimState.isOperationInProgress
+        else {
+            return
+        }
+
+        let preflightID = UUID()
+        applicationFileDropTargetItem = item.id
+        applicationFileDropPresentation = .checking
+        applicationFileDropURLs = nil
+        applicationFileDropPreflightID = preflightID
+        externalFileDropClaimState.applicationTargetEntered(
+            itemID: item.id
+        )
+        TooltipManager.shared.hide()
+        beginExternalFileDropInteraction()
+
+        let relevant = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(
+                UTType.fileURL.identifier
+            )
+        }
+        guard !relevant.isEmpty else {
+            setApplicationFileDropPresentation(
+                .rejected,
+                for: item,
+                itemCount: providers.count
+            )
+            return
+        }
+
+        loadFileDropProviders(relevant) { result in
+            guard applicationFileDropPreflightID == preflightID,
+                  applicationFileDropTargetItem == item.id,
+                  !externalFileDropClaimState.isOperationInProgress
+            else {
+                return
+            }
+
+            guard result.failedInputIndices.isEmpty,
+                  !result.urls.isEmpty
+            else {
+                applicationFileDropURLs = nil
+                setApplicationFileDropPresentation(
+                    .rejected,
+                    for: item,
+                    itemCount: relevant.count
+                )
+                return
+            }
+
+            applicationFileDropURLs = result.urls
+            if result.urls.contains(where: shouldPinAsDockItem) {
+                let plan = DockItemPlanner.planAdding(
+                    urls: result.urls,
+                    to: displayedItems ?? items
+                )
+                setApplicationFileDropPresentation(
+                    plan.addedCount > 0 ? .pin : .rejected,
+                    for: item,
+                    itemCount: result.urls.count
+                )
+            } else {
+                setApplicationFileDropPresentation(
+                    onCanOpenFilesWithApplication(item, result.urls)
+                        ? .open
+                        : .rejected,
+                    for: item,
+                    itemCount: result.urls.count
+                )
+            }
+        }
+    }
+
+    private func setApplicationFileDropPresentation(
+        _ presentation: ApplicationFileDropPresentation,
+        for item: DockItem,
+        itemCount: Int
+    ) {
+        applicationFileDropPresentation = presentation
+        guard presentation != .checking else { return }
+
+        let applicationName = item.label
+            ?? item.fileURL.map {
+                FileManager.default.displayName(atPath: $0.path)
+            }
+            ?? "this application"
+        let count = max(1, itemCount)
+        let noun = count == 1 ? "item" : "items"
+        let announcement: String
+        switch presentation {
+        case .checking:
+            return
+        case .open:
+            announcement =
+                "\(applicationName) can open \(count) \(noun)."
+        case .pin:
+            announcement =
+                "Add \(count) \(noun) to \(state.name)."
+        case .rejected:
+            announcement =
+                "Drop unavailable for \(applicationName)."
+        }
+
+        NSAccessibility.post(
+            element: panel,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: announcement,
+                .priority:
+                    NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
+    private func endApplicationFileDropPreflight(
+        itemID: DockItem.ID
+    ) {
+        externalFileDropClaimState.applicationTargetExited(
+            itemID: itemID
+        )
+        guard applicationFileDropTargetItem == itemID,
+              !externalFileDropClaimState.isOperationInProgress
+        else {
+            return
+        }
+
+        clearApplicationFileDropPresentation()
+        endExternalFileDropInteractionIfPossible()
+    }
+
+    private func clearApplicationFileDropPresentation() {
+        applicationFileDropTargetItem = nil
+        applicationFileDropPresentation = nil
+        applicationFileDropURLs = nil
+        applicationFileDropPreflightID = nil
+    }
+
+    private func claimApplicationFileDrop(
+        itemID: DockItem.ID
+    ) -> UUID {
+        applicationFileDropTargetItem = itemID
+        applicationFileDropPreflightID = nil
+        return beginExternalFileDropOperation(
+            claimingApplicationItemID: itemID
+        )
+    }
+
+    private func updateExternalFileDropTargeting(_ targeted: Bool) {
+        if targeted {
+            beginExternalFileDropInteraction()
+        } else {
+            endExternalFileDropInteractionIfPossible()
+        }
+    }
+
+    private func beginExternalFileDropOperation(
+        claimingApplicationItemID: DockItem.ID? = nil
+    ) -> UUID {
+        let operationID = UUID()
+        if let claimingApplicationItemID {
+            externalFileDropClaimState.claimApplicationDrop(
+                itemID: claimingApplicationItemID,
+                operationID: operationID
+            )
+            externalFileDropClaimState.applicationTargetExited(
+                itemID: claimingApplicationItemID
+            )
+            DispatchQueue.main.async {
+                _ = externalFileDropClaimState
+                    .releaseDispatchSuppression(for: operationID)
+                endExternalFileDropInteractionIfPossible()
+            }
+        } else {
+            externalFileDropClaimState.beginOperation(
+                operationID: operationID
+            )
+        }
+        beginExternalFileDropInteraction()
+        externalFileDropExpiryWorkItem?.cancel()
+        let work = DispatchWorkItem {
+            guard externalFileDropClaimState.activeOperationID
+                    == operationID
+            else {
+                return
+            }
+            NSSound.beep()
+            finishExternalFileDropOperation(operationID)
+        }
+        externalFileDropExpiryWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 30,
+            execute: work
+        )
+        return operationID
+    }
+
+    private func finishExternalFileDropOperation(
+        _ operationID: UUID
+    ) {
+        guard externalFileDropClaimState.finishOperation(
+            operationID
+        ) else {
+            return
+        }
+        externalFileDropExpiryWorkItem?.cancel()
+        externalFileDropExpiryWorkItem = nil
+        clearApplicationFileDropPresentation()
+        endExternalFileDropInteractionIfPossible()
+    }
+
+    private func beginExternalFileDropInteraction() {
+        guard externalFileDropInteractionToken == nil else { return }
+        externalFileDropInteractionToken =
+            panel.beginTransientInteraction()
+    }
+
+    private func endExternalFileDropInteractionIfPossible() {
+        guard !isTargeted,
+              applicationFileDropTargetItem == nil,
+              !externalFileDropClaimState.isOperationInProgress,
+              !externalFileDropClaimState
+                  .shouldSuppressParentPinDrop,
+              let token = externalFileDropInteractionToken
+        else {
+            return
+        }
+        externalFileDropInteractionToken = nil
+        panel.endTransientInteraction(token)
+    }
+
+    private func tearDownExternalFileDropInteraction() {
+        externalFileDropExpiryWorkItem?.cancel()
+        externalFileDropExpiryWorkItem = nil
+        externalFileDropClaimState.reset()
+        clearApplicationFileDropPresentation()
+        guard let token = externalFileDropInteractionToken else {
+            return
+        }
+        externalFileDropInteractionToken = nil
+        panel.endTransientInteraction(token)
     }
 
     private func dragProvider(for item: DockItem) -> NSItemProvider {
@@ -1091,9 +1584,72 @@ private struct DockItemDropDelegate: DropDelegate {
     }
 }
 
+private struct DockApplicationFileDropDelegate: DropDelegate {
+    let isEnabled: Bool
+    let isRejected: Bool
+    let onEntered: @MainActor ([NSItemProvider]) -> Void
+    let onExited: @MainActor () -> Void
+    let onClaim: @MainActor () -> UUID
+    let onPerform: @MainActor ([NSItemProvider], UUID) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        canAccept(info)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard canAccept(info) else { return }
+        onEntered(info.itemProviders(for: [.fileURL]))
+    }
+
+    func dropExited(info _: DropInfo) {
+        onExited()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard canAccept(info), !isRejected else {
+            return DropProposal(operation: .forbidden)
+        }
+        return DropProposal(operation: .copy)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard canAccept(info) else {
+            onExited()
+            return false
+        }
+
+        let providers = info.itemProviders(for: [.fileURL])
+        guard !providers.isEmpty else {
+            onExited()
+            return false
+        }
+
+        let operationID = onClaim()
+        return onPerform(providers, operationID)
+    }
+
+    private func canAccept(_ info: DropInfo) -> Bool {
+        isEnabled
+            && info.hasItemsConforming(to: [.fileURL])
+    }
+}
+
+private enum ApplicationFileDropPresentation: Equatable {
+    case checking
+    case open
+    case pin
+    case rejected
+}
+
+private struct OrderedFileDropLoadResult: Sendable {
+    let urls: [URL]
+    let failedInputIndices: [Int]
+}
+
 private final class OrderedFileDropAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private var results: [URL?]
+    private var completedIndices = Set<Int>()
     private var remaining: Int
 
     init(count: Int) {
@@ -1101,15 +1657,28 @@ private final class OrderedFileDropAccumulator: @unchecked Sendable {
         remaining = count
     }
 
-    func store(_ url: URL?, at index: Int) -> [URL]? {
+    func store(
+        _ url: URL?,
+        at index: Int
+    ) -> OrderedFileDropLoadResult? {
         lock.lock()
         defer { lock.unlock() }
 
-        guard remaining > 0, results.indices.contains(index) else {
+        guard remaining > 0,
+              results.indices.contains(index),
+              completedIndices.insert(index).inserted
+        else {
             return nil
         }
         results[index] = url
         remaining -= 1
-        return remaining == 0 ? results.compactMap { $0 } : nil
+        guard remaining == 0 else { return nil }
+
+        return OrderedFileDropLoadResult(
+            urls: results.compactMap { $0 },
+            failedInputIndices: results.indices.filter {
+                results[$0] == nil
+            }
+        )
     }
 }

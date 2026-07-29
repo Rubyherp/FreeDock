@@ -11,6 +11,7 @@ struct DockItemView: View {
     let hasRecentFiles: () -> Bool
     let onClearRecentFilesRequested: () -> Void
     let onOpenDocumentWithApplication: (URL) -> Void
+    let onChooseFilesForApplication: () -> Void
 
     @ObservedObject private var monitor = RunningAppMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -210,6 +211,7 @@ struct DockItemView: View {
                 ) {
                     performApplicationAction(.quit, bundleID: bundleID)
                 }
+                Divider()
             } else {
                 Button("Open") { activate() }
                     .disabled(!resolvedPresentation.isAvailable)
@@ -218,6 +220,12 @@ struct DockItemView: View {
             Button("Open") { activate() }
                 .disabled(!resolvedPresentation.isAvailable)
         }
+
+        Button(
+            "Open Files with \(resolvedPresentation.displayName)…",
+            action: onChooseFilesForApplication
+        )
+        .disabled(!resolvedPresentation.isAvailable)
     }
 
     @ViewBuilder
@@ -451,7 +459,7 @@ struct DockItemView: View {
         case .folder:
             return "Shows this folder’s contents."
         case .application:
-            return "Opens the application."
+            return "Opens the application. Use the context menu to choose files, or drop compatible files onto it."
         case .document:
             return "Opens the document in its default application."
         case .separator:

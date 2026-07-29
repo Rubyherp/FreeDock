@@ -47,6 +47,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let size: Double
     }
 
+    private struct ApplicationFileOpenRequest {
+        let applicationURL: URL
+        let fileURLs: [URL]
+        let applicationName: String
+    }
+
+    private enum ApplicationFileOpenPreparation {
+        case ready(ApplicationFileOpenRequest)
+        case rejected(title: String, message: String)
+    }
+
     func applicationDidFinishLaunching(_: Notification) {
         itemDragCoordinator.onSessionBegan = { [weak self] _ in
             self?.beginDockItemDragInteraction()
@@ -1720,43 +1731,248 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         _ url: URL,
         withApplicationAt applicationURL: URL
     ) {
-        guard url.isFileURL,
-              applicationURL.isFileURL,
-              FileManager.default.fileExists(atPath: url.path),
-              FileManager.default.fileExists(atPath: applicationURL.path)
-        else {
-            NSSound.beep()
-            return
+        _ = openFilesThroughFreeDock(
+            [url],
+            withApplicationAt: applicationURL
+        )
+    }
+
+    @discardableResult
+    private func openFilesThroughFreeDock(
+        _ urls: [URL],
+        withApplicationAt applicationURL: URL,
+        applicationName: String? = nil,
+        presentsValidationErrors: Bool = true
+    ) -> Bool {
+        let preparation = prepareApplicationFileOpen(
+            urls,
+            withApplicationAt: applicationURL,
+            applicationName: applicationName
+        )
+        guard case let .ready(request) = preparation else {
+            if case let .rejected(title, message) = preparation {
+                if presentsValidationErrors {
+                    showApplicationFileOpenError(
+                        title: title,
+                        message: message
+                    )
+                } else {
+                    NSSound.beep()
+                }
+            }
+            return false
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         configuration.allowsRunningApplicationSubstitution = false
         NSWorkspace.shared.open(
-            [url],
-            withApplicationAt: applicationURL,
+            request.fileURLs,
+            withApplicationAt: request.applicationURL,
             configuration: configuration
         ) { [weak self] _, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard error == nil else {
-                    NSSound.beep()
+                if let error {
+                    self.showApplicationFileOpenError(
+                        title: "Couldn’t Open with \(request.applicationName)",
+                        message: error.localizedDescription
+                    )
                     return
                 }
-                self.recordRecentDocument(url)
+                self.recordRecentDocuments(request.fileURLs)
             }
+        }
+        return true
+    }
+
+    private func canOpenFilesThroughFreeDock(
+        _ urls: [URL],
+        withApplicationAt applicationURL: URL,
+        applicationName: String? = nil
+    ) -> Bool {
+        if case .ready = prepareApplicationFileOpen(
+            urls,
+            withApplicationAt: applicationURL,
+            applicationName: applicationName
+        ) {
+            return true
+        }
+        return false
+    }
+
+    private func prepareApplicationFileOpen(
+        _ urls: [URL],
+        withApplicationAt applicationURL: URL,
+        applicationName: String?
+    ) -> ApplicationFileOpenPreparation {
+        let outcome = DockApplicationFileDropPlanner.plan(
+            applicationURL: applicationURL,
+            droppedURLs: urls
+        )
+        guard let plan = outcome.plan,
+              FileManager.default.fileExists(
+                  atPath: plan.applicationURL.path
+              ),
+              DockItem.pinnedItem(at: plan.applicationURL)?.kind
+                  == .application
+        else {
+            return .rejected(
+                title: "Application Isn’t Available",
+                message: "FreeDock could not find the selected application."
+            )
+        }
+
+        let fileURLs = canonicalUniqueURLs(plan.fileURLs)
+        guard !fileURLs.isEmpty,
+              fileURLs.allSatisfy({
+                  FileManager.default.fileExists(atPath: $0.path)
+              })
+        else {
+            return .rejected(
+                title: "Items Aren’t Available",
+                message: "One or more selected items could not be found."
+            )
+        }
+
+        let resolvedApplicationName = applicationName
+            ?? applicationDisplayName(at: plan.applicationURL)
+        guard fileURLs.allSatisfy({
+            application(plan.applicationURL, canOpen: $0)
+        }) else {
+            let itemCount = fileURLs.count
+            return .rejected(
+                title: "\(resolvedApplicationName) Can’t Open \(itemCount == 1 ? "This Item" : "These Items")",
+                message: "The entire selection was cancelled. Move the \(itemCount == 1 ? "item" : "items") to an empty area of the dock if you want to pin \(itemCount == 1 ? "it" : "them") instead."
+            )
+        }
+
+        return .ready(
+            ApplicationFileOpenRequest(
+                applicationURL: plan.applicationURL,
+                fileURLs: fileURLs,
+                applicationName: resolvedApplicationName
+            )
+        )
+    }
+
+    private func application(
+        _ applicationURL: URL,
+        canOpen fileURL: URL
+    ) -> Bool {
+        let applicationIdentity = canonicalFileIdentity(
+            applicationURL
+        )
+        return NSWorkspace.shared
+            .urlsForApplications(toOpen: fileURL)
+            .contains {
+                canonicalFileIdentity($0) == applicationIdentity
+            }
+    }
+
+    private func canonicalUniqueURLs(_ urls: [URL]) -> [URL] {
+        var seenIdentities = Set<String>()
+        return urls.filter {
+            seenIdentities.insert(
+                canonicalFileIdentity($0)
+            ).inserted
         }
     }
 
-    private func recordRecentDocument(_ url: URL) {
-        let plan = RecentFileHistoryPlanner.planRecording(
-            url: url,
-            displayName: FileManager.default.displayName(atPath: url.path),
-            records: configManager.config.recentFiles
+    private func canonicalFileIdentity(_ url: URL) -> String {
+        url.standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+    }
+
+    private func applicationDisplayName(at applicationURL: URL) -> String {
+        let displayName = FileManager.default.displayName(
+            atPath: applicationURL.path
         )
-        guard plan.didRecord else { return }
-        configManager.config.recentFiles = plan.records
+        return displayName.hasSuffix(".app")
+            ? (displayName as NSString).deletingPathExtension
+            : displayName
+    }
+
+    private func showApplicationFileOpenError(
+        title: String,
+        message: String
+    ) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func recordRecentDocument(_ url: URL) {
+        recordRecentDocuments([url])
+    }
+
+    private func recordRecentDocuments(_ urls: [URL]) {
+        var records = configManager.config.recentFiles
+        var didRecord = false
+        let openedAt = Date()
+
+        for (index, url) in urls.enumerated() {
+            let plan = RecentFileHistoryPlanner.planRecording(
+                url: url,
+                displayName: FileManager.default.displayName(
+                    atPath: url.path
+                ),
+                openedAt: openedAt.addingTimeInterval(
+                    -Double(index) / 1_000
+                ),
+                records: records
+            )
+            guard plan.didRecord else { continue }
+            records = plan.records
+            didRecord = true
+        }
+
+        guard didRecord else { return }
+        configManager.config.recentFiles = records
         configManager.save()
+    }
+
+    private func chooseFilesToOpen(
+        with item: DockItem,
+        from sourceDock: DockPanel
+    ) {
+        guard item.kind == .application,
+              let applicationURL = item.fileURL,
+              FileManager.default.fileExists(
+                  atPath: applicationURL.path
+              )
+        else {
+            NSSound.beep()
+            return
+        }
+
+        let interactionToken = sourceDock.beginTransientInteraction()
+        let openPanel = NSOpenPanel()
+        let applicationName = item.label
+            ?? applicationDisplayName(at: applicationURL)
+        openPanel.title = "Open with \(applicationName)"
+        openPanel.message = "Choose files or folders for \(applicationName) to open."
+        openPanel.prompt = "Open"
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = true
+        openPanel.resolvesAliases = true
+        openPanel.treatsFilePackagesAsDirectories = false
+        openPanel.begin { [weak self, weak sourceDock] response in
+            sourceDock?.endTransientInteraction(interactionToken)
+            guard response == .OK, let self else { return }
+            _ = self.openFilesThroughFreeDock(
+                openPanel.urls,
+                withApplicationAt: applicationURL,
+                applicationName: applicationName
+            )
+        }
     }
 
     private func updateFolderStackOptions(
@@ -2237,6 +2453,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openThroughFreeDock(
                     URL(fileURLWithPath: item.path),
                     withApplicationAt: applicationURL
+                )
+            },
+            onOpenFilesWithApplication: {
+                [weak self] item, fileURLs in
+                guard let self,
+                      let applicationURL = item.fileURL
+                else {
+                    return false
+                }
+                return self.openFilesThroughFreeDock(
+                    fileURLs,
+                    withApplicationAt: applicationURL,
+                    applicationName: item.label,
+                    presentsValidationErrors: false
+                )
+            },
+            onCanOpenFilesWithApplication: {
+                [weak self] item, fileURLs in
+                guard let self,
+                      let applicationURL = item.fileURL
+                else {
+                    return false
+                }
+                return self.canOpenFilesThroughFreeDock(
+                    fileURLs,
+                    withApplicationAt: applicationURL,
+                    applicationName: item.label
+                )
+            },
+            onChooseFilesForApplication: {
+                [weak self, weak panel] item in
+                guard let self, let panel else { return }
+                self.chooseFilesToOpen(
+                    with: item,
+                    from: panel
                 )
             }
         )

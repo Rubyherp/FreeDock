@@ -63,6 +63,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
 - **Native item controls** — Right-click to show, hide, or quit apps; choose how stacks are displayed and sorted; or open a document with another compatible app
+- **Open files with apps** — Drop compatible Finder files or folders directly onto a pinned application
 - **Open in one click** — Launch apps, open documents, or browse folder stacks
 - **Lock positions** — Prevent accidental dock movement
 - **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
@@ -113,7 +114,8 @@ make run
 6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
 8. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
-9. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
+9. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
+10. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
