@@ -2,6 +2,14 @@ import Cocoa
 import OSLog
 import SwiftUI
 
+private final class DockHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
+        true
+    }
+}
+
 class DockPanel: NSPanel, NSWindowDelegate {
     let dockID: UUID
     var dockOrientation: Orientation = .horizontal
@@ -82,7 +90,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
         // the transparent magnification headroom as a second, rectangular border.
         hasShadow = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isReleasedWhenClosed = false
@@ -120,16 +128,17 @@ class DockPanel: NSPanel, NSWindowDelegate {
         quickLaunchKeyModeEnabled = enabled
     }
 
-    func setPositionLocked(_ locked: Bool) {
-        isMovableByWindowBackground =
-            !locked && resizeInteractionTokens.isEmpty
+    func setPositionLocked(_: Bool) {
+        // Moving is owned exclusively by DockDragHandleView so AppKit never
+        // mistakes an icon reorder gesture for a background-window drag.
+        isMovableByWindowBackground = false
     }
 
     func setContentView<V: View>(_ view: V) {
         let container = DockContainerView(frame: NSRect(origin: .zero, size: NSSize(width: 400, height: 70)))
         container.dockPanel = self
 
-        let hosting = NSHostingView(rootView: view)
+        let hosting = DockHostingView(rootView: view)
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true

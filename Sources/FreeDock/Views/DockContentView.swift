@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DockContentView: View {
-    private static let dockItemType = UTType(exportedAs: "com.freedock.dock-item")
+    private static let dockItemType = UTType.plainText
 
     let panel: DockPanel
     @Binding var items: [DockItem]
@@ -146,7 +146,10 @@ struct DockContentView: View {
         if state.isQuickLaunchPresented {
             quickLaunchDockLayout
         } else if orientation == .horizontal {
-            HStack(spacing: state.itemSpacing) { content }
+            HStack(spacing: state.itemSpacing) {
+                dockMoveHandle
+                content
+            }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 9)
                 .background(dockSurface)
@@ -163,7 +166,10 @@ struct DockContentView: View {
                 }
                 .padding(.top, magnificationHeadroom)
         } else {
-            VStack(spacing: state.itemSpacing) { content }
+            VStack(spacing: state.itemSpacing) {
+                dockMoveHandle
+                content
+            }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 8)
                 .background(dockSurface)
@@ -179,6 +185,27 @@ struct DockContentView: View {
                     }
                 }
                 .padding(.horizontal, magnificationHeadroom * 0.52)
+        }
+    }
+
+    @ViewBuilder
+    private var dockMoveHandle: some View {
+        if orientation == .horizontal {
+            DockDragHandleRepresentable(
+                panel: panel,
+                orientation: orientation
+            )
+            .frame(width: 16, height: iconSize + 11)
+            .help("Drag to move this dock")
+            .accessibilityLabel("Move \(state.name) dock")
+        } else {
+            DockDragHandleRepresentable(
+                panel: panel,
+                orientation: orientation
+            )
+            .frame(width: iconSize + 11, height: 16)
+            .help("Drag to move this dock")
+            .accessibilityLabel("Move \(state.name) dock")
         }
     }
 
@@ -318,6 +345,7 @@ struct DockContentView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(chromeColor.opacity(0.13), lineWidth: 0.75)
+                .allowsHitTesting(false)
         }
     }
 
@@ -369,6 +397,7 @@ struct DockContentView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color.accentColor.opacity(trailingTargeted ? 0.5 : 0), lineWidth: 1.5)
+                            .allowsHitTesting(false)
                     )
                     .onDrop(of: [Self.dockItemType], isTargeted: $trailingTargeted) { _ in
                         var updatedItems = displayedItems ?? items
@@ -408,20 +437,16 @@ struct DockContentView: View {
             }
         }
 
-        if state.isQuickLaunchPresented {
-            separator
-        } else {
-            separator
-                .onDrag {
-                    dragProvider(for: item)
-                }
-                .onDrop(
-                    of: [Self.dockItemType],
-                    isTargeted: nil
-                ) { providers in
-                    handleReorder(providers, targetItem: item)
-                }
-        }
+        separator
+            .onDrag {
+                dragProvider(for: item)
+            }
+            .onDrop(
+                of: [Self.dockItemType],
+                isTargeted: nil
+            ) { providers in
+                handleReorder(providers, targetItem: item)
+            }
     }
 
     @ViewBuilder
@@ -461,7 +486,10 @@ struct DockContentView: View {
             state.isQuickLaunchPresented
                 && !matchingItemIDs.contains(item.id)
         )
-        .overlay { dockItemOverlay(for: item) }
+        .overlay {
+            dockItemOverlay(for: item)
+                .allowsHitTesting(false)
+        }
         .scaleEffect(
             selectedQuickLaunchItemID == item.id
                 && state.isQuickLaunchPresented
@@ -474,32 +502,28 @@ struct DockContentView: View {
             value: selectedQuickLaunchItemID
         )
 
-        if state.isQuickLaunchPresented {
-            cell
-        } else {
-            cell
-                .onDrag {
-                    dragProvider(for: item)
-                } preview: {
-                    Image(
-                        nsImage: DockItemPresentation.resolve(item).icon
-                    )
-                    .resizable()
-                    .frame(width: iconSize, height: iconSize)
-                    .opacity(0.85)
-                }
-                .onDrop(
-                    of: [Self.dockItemType],
-                    isTargeted: Binding(
-                        get: { dropTargetItem == item.id },
-                        set: {
-                            dropTargetItem = $0 ? item.id : nil
-                        }
-                    )
-                ) { providers in
-                    handleReorder(providers, targetItem: item)
-                }
-        }
+        cell
+            .onDrag {
+                dragProvider(for: item)
+            } preview: {
+                Image(
+                    nsImage: DockItemPresentation.resolve(item).icon
+                )
+                .resizable()
+                .frame(width: iconSize, height: iconSize)
+                .opacity(0.85)
+            }
+            .onDrop(
+                of: [Self.dockItemType],
+                isTargeted: Binding(
+                    get: { dropTargetItem == item.id },
+                    set: {
+                        dropTargetItem = $0 ? item.id : nil
+                    }
+                )
+            ) { providers in
+                handleReorder(providers, targetItem: item)
+            }
     }
 
     struct DockSeparatorView: View {
@@ -676,6 +700,7 @@ struct DockContentView: View {
         RoundedRectangle(cornerRadius: surfaceCornerRadius)
             .stroke(isTargeted ? Color.accentColor.opacity(dropPulse ? 1.0 : 0.55) : Color.clear, lineWidth: 2)
             .shadow(color: isTargeted ? Color.accentColor.opacity(dropPulse ? 0.35 : 0.12) : Color.clear, radius: dropPulse ? 7 : 2)
+            .allowsHitTesting(false)
     }
 
     private var dockSurface: some View {
@@ -805,15 +830,7 @@ struct DockContentView: View {
             return NSItemProvider()
         }
         draggedItem = item
-        let provider = NSItemProvider()
-        provider.registerDataRepresentation(
-            forTypeIdentifier: Self.dockItemType.identifier,
-            visibility: .ownProcess
-        ) { completion in
-            completion(item.id.uuidString.data(using: .utf8), nil)
-            return nil
-        }
-        return provider
+        return NSItemProvider(object: item.id.uuidString as NSString)
     }
 
     private func handleReorder(_: [NSItemProvider], targetItem: DockItem) -> Bool {

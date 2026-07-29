@@ -14,7 +14,7 @@ class DockContainerView: NSView {
     private let revealIndicatorLayer = CALayer()
     private var revealEdge: DockRevealEdge?
 
-    override var mouseDownCanMoveWindow: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
