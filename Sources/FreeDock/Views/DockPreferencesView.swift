@@ -429,9 +429,19 @@ struct DockPreferencesView: View {
                     }
 
                     settingsSection(
-                        title: "Apps",
+                        title: "Content",
                         symbol: "square.grid.3x3.fill"
                     ) {
+                        actionRow(
+                            title: "Add files or folders",
+                            description: "Pin applications and documents, or add a folder stack that stays in sync with Finder.",
+                            buttonTitle: "Add…"
+                        ) {
+                            store.perform(.addDockItems(dock.id))
+                        }
+
+                        Divider()
+
                         actionRow(
                             title: "Import from macOS Dock",
                             description: "Append pinned apps that aren’t already here. Existing apps and separators stay unchanged.",

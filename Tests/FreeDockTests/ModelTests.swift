@@ -477,6 +477,8 @@ func preferencesStoreSelectionAndUpdates() {
     #expect(store.selectedDock?.shadowStrength == DockConfig.shadowStrengthRange.upperBound)
     #expect(received?.1 == .shadowStrength(9))
 
+    store.perform(.addDockItems(second.id))
+    #expect(managementAction == .addDockItems(second.id))
     store.perform(.importSystemDockApps(second.id))
     #expect(managementAction == .importSystemDockApps(second.id))
     store.perform(.setDockDisplay(second.id, displayID))

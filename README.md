@@ -21,7 +21,7 @@
   <img src="docs/screenshot-hero.png" width="600" alt="FreeDock in action">
 </p>
 
-FreeDock lets you create unlimited floating docks on any macOS screen. Pin your most-used apps, organize them by project, and keep them accessible with a single click — all without touching the system Dock.
+FreeDock lets you create unlimited floating docks on any macOS screen. Pin your most-used apps, files, and folders, organize them by project, and keep them accessible with a single click — all without touching the system Dock.
 
 ---
 
@@ -54,11 +54,12 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
-- **Drag & drop** — Drag `.app` files from Finder directly onto a dock
-- **Reorder** — Drag icons within a dock to rearrange them
+- **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
+- **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
+- **Reorder** — Drag apps, documents, folders, and separators into any arrangement
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
-- **Click to launch or switch** — Single-click to open an app or bring it to focus
+- **Open in one click** — Launch apps, open documents, or browse folder stacks
 - **Lock positions** — Prevent accidental dock movement
 - **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
 - **Persistent config** — All docks are saved to `~/.config/freedock.json`
@@ -102,24 +103,25 @@ make run
 
 1. Click the **grid icon** (⫷) in your menu bar
 2. Select **New Dock → Horizontal** or **Vertical**
-3. Drag `.app` files from Finder into the dock
-4. Click any app to launch it or bring it to focus
-5. Drag the empty space around the dock to reposition it
-6. Right-click an app to remove it or access more options
+3. Drag applications, documents, or folders from Finder into the dock
+4. Click an app or document to open it, or click a folder to browse its live contents
+5. Use a folder stack’s options menu to choose automatic, grid, or list view; change sorting; or show hidden files
+6. Drag pinned items to reorder them, or drag the empty space around the dock to reposition it
+7. Right-click an item to open or reveal it, copy its path, or remove it
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
-**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
+**Customization:** Choose **Preferences…** from the FreeDock menu to switch or manage profiles, create and organize docks, add files or folders, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
 **Shortcuts:** Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 
 ## Configuration
 
-Docks and profiles are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Legacy top-level dock configurations migrate automatically.
+Docks and profiles are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 3 adds typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 2,
+  "formatVersion": 3,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
   "profiles": [
     {
@@ -149,7 +151,44 @@ Docks and profiles are saved to `~/.config/freedock.json`. The file is human-rea
           "showRunningIndicators": true,
           "autoHideWhenDocked": true,
           "autoHideDelay": 1,
-          "items": []
+          "items": [
+            {
+              "id": "44444444-4444-4444-4444-444444444444",
+              "kind": "application",
+              "path": "/Applications/Safari.app",
+              "appPath": "/Applications/Safari.app",
+              "label": "Safari",
+              "isSeparator": false
+            },
+            {
+              "id": "55555555-5555-5555-5555-555555555555",
+              "kind": "document",
+              "path": "/Users/example/Documents/Project Brief.pdf",
+              "appPath": "/Users/example/Documents/Project Brief.pdf",
+              "label": "Project Brief.pdf",
+              "isSeparator": false
+            },
+            {
+              "id": "66666666-6666-6666-6666-666666666666",
+              "kind": "folder",
+              "path": "/Users/example/Downloads",
+              "appPath": "/Users/example/Downloads",
+              "label": "Downloads",
+              "folderOptions": {
+                "presentation": "automatic",
+                "sortOrder": "dateModified",
+                "showHiddenFiles": false
+              },
+              "isSeparator": false
+            },
+            {
+              "id": "77777777-7777-7777-7777-777777777777",
+              "kind": "separator",
+              "path": "",
+              "appPath": "",
+              "isSeparator": true
+            }
+          ]
         }
       ]
     }
@@ -157,7 +196,7 @@ Docks and profiles are saved to `~/.config/freedock.json`. The file is human-rea
 }
 ```
 
-FreeDock also writes the active profile’s docks to a top-level compatibility field so older builds can still open the current setup.
+FreeDock also writes the active profile’s docks to a top-level compatibility field so older builds can still open the current setup. Typed items retain the legacy `appPath` and `isSeparator` fields for the same reason; `kind` and `path` are the version 3 fields to use when editing the file.
 
 ## Contributing
 

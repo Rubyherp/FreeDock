@@ -109,8 +109,8 @@ enum SystemDockImporter {
         )
         var seenBundleIdentifiers = Set(
             existingItems
-                .filter { !$0.isSeparator }
-                .compactMap { bundleIdentifierForPath($0.appPath) }
+                .filter { $0.kind == .application }
+                .compactMap { bundleIdentifierForPath($0.path) }
                 .compactMap(normalizedBundleIdentifier)
         )
         var importedItems: [DockItem] = []
@@ -131,7 +131,13 @@ enum SystemDockImporter {
 
             let label = normalizedLabel(app.label)
                 ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-            importedItems.append(DockItem(appPath: path, label: label))
+            importedItems.append(
+                DockItem(
+                    kind: .application,
+                    path: path,
+                    label: label
+                )
+            )
             seenPaths.insert(pathKey)
             if let bundleIdentifier {
                 seenBundleIdentifiers.insert(bundleIdentifier)

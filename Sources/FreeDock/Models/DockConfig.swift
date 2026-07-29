@@ -133,11 +133,7 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
             displayPlacement: displayPlacement,
             orientation: orientation,
             iconSize: iconSize,
-            items: items.map { item in
-                item.isSeparator
-                    ? DockItem.separator()
-                    : DockItem(appPath: item.appPath, label: item.label)
-            },
+            items: items.map { $0.duplicated() },
             autoHideWhenDocked: autoHideWhenDocked,
             magnificationEnabled: magnificationEnabled,
             magnification: magnification,

@@ -8,8 +8,9 @@ struct DockContentView: View {
     @Binding var items: [DockItem]
     let orientation: Orientation
     @ObservedObject var state: DockState
-    let onItemsChanged: @MainActor ([DockItem]) -> Void
-    let onAppLaunch: @MainActor (DockItem) -> Void
+    let onItemActivation: @MainActor (DockItem, NSRect) -> Void
+    let onAddItemsRequested: @MainActor () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var iconSize: Double {
         state.iconSize
@@ -60,6 +61,10 @@ struct DockContentView: View {
             .onAppear { displayedItems = items }
             .onChange(of: items) { displayedItems = $0 }
             .contextMenu {
+                Button("Add Files or Folders…") {
+                    onAddItemsRequested()
+                }
+                Divider()
                 Button("Add Separator") {
                     var updated = displayedItems ?? items
                     updated.append(.separator())
@@ -104,7 +109,7 @@ struct DockContentView: View {
     @ViewBuilder
     private var content: some View {
         if currentItems.isEmpty {
-            Label("Drop apps", systemImage: "plus.circle.fill")
+            Label("Drop apps, files, or folders", systemImage: "plus.circle.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(chromeColor.opacity(0.65))
                 .padding(.horizontal, 13)
@@ -136,7 +141,9 @@ struct DockContentView: View {
                         item: item,
                         iconSize: iconSize,
                         scale: scale(for: index, in: currentItems),
-                        onLaunch: { onAppLaunch(item) },
+                        onActivate: { screenRect in
+                            onItemActivation(item, screenRect)
+                        },
                         onRemove: { removeItem(item) },
                         hoveredItem: $hoveredItem,
                         orientation: orientation,
@@ -156,7 +163,7 @@ struct DockContentView: View {
                     .onDrag {
                         dragProvider(for: item)
                     } preview: {
-                        Image(nsImage: AppInfo.resolve(from: item.appPath).icon)
+                        Image(nsImage: DockItemPresentation.resolve(item).icon)
                             .resizable()
                             .frame(width: iconSize, height: iconSize)
                             .opacity(0.85)
@@ -320,9 +327,13 @@ struct DockContentView: View {
 
     private func updateDropPulse(_ targeted: Bool) {
         if targeted {
-            dropPulse = false
-            withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+            if reduceMotion {
                 dropPulse = true
+            } else {
+                dropPulse = false
+                withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                    dropPulse = true
+                }
             }
         } else {
             withAnimation(.easeOut(duration: 0.12)) {
@@ -334,15 +345,29 @@ struct DockContentView: View {
     private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {
         let relevant = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !relevant.isEmpty else { return false }
-        for provider in relevant {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil), url.path.hasSuffix(".app"), FileManager.default.fileExists(atPath: url.path) else { return }
-                let info = AppInfo.resolve(from: url.path)
-                let newItem = DockItem(appPath: url.path, label: info.displayName)
+
+        let accumulator = OrderedFileDropAccumulator(count: relevant.count)
+        for (index, provider) in relevant.enumerated() {
+            provider.loadDataRepresentation(
+                forTypeIdentifier: UTType.fileURL.identifier
+            ) { data, _ in
+                let url = data.flatMap {
+                    URL(dataRepresentation: $0, relativeTo: nil)
+                }
+                guard let completedURLs = accumulator.store(
+                    url,
+                    at: index
+                ) else {
+                    return
+                }
+
                 DispatchQueue.main.async {
-                    var updatedItems = displayedItems ?? items
-                    updatedItems.append(newItem)
-                    commitItems(updatedItems)
+                    let plan = DockItemPlanner.planAdding(
+                        urls: completedURLs,
+                        to: displayedItems ?? items
+                    )
+                    guard plan.addedCount > 0 else { return }
+                    commitItems(plan.items)
                 }
             }
         }
@@ -383,12 +408,33 @@ struct DockContentView: View {
         updatedItems.removeAll(where: { $0.id == item.id })
         withAnimation { displayedItems = updatedItems }
         items = updatedItems
-        onItemsChanged(updatedItems)
     }
 
     private func commitItems(_ updatedItems: [DockItem]) {
         displayedItems = updatedItems
         items = updatedItems
-        onItemsChanged(updatedItems)
+    }
+}
+
+private final class OrderedFileDropAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [URL?]
+    private var remaining: Int
+
+    init(count: Int) {
+        results = Array(repeating: nil, count: count)
+        remaining = count
+    }
+
+    func store(_ url: URL?, at index: Int) -> [URL]? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard remaining > 0, results.indices.contains(index) else {
+            return nil
+        }
+        results[index] = url
+        remaining -= 1
+        return remaining == 0 ? results.compactMap { $0 } : nil
     }
 }

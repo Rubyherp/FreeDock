@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
     private var screenParametersWorkItem: DispatchWorkItem?
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
+    private var folderStackController: FolderStackPanelController?
 
     private struct RuntimeDisplayState {
         var effectiveDisplayID: UUID?
@@ -54,11 +55,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         screenParametersWorkItem?.cancel()
+        closeFolderStack()
         saveAllPositions()
         configManager.saveImmediately()
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
+        closeFolderStack()
         for panel in dockPanels.values {
             panel.revealImmediately()
         }
@@ -280,6 +283,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             confirmAndDeleteDock(dockID)
         case let .setDockDisplay(dockID, displayID):
             setPreferredDisplay(displayID, for: dockID)
+        case let .addDockItems(dockID):
+            chooseDockItems(for: dockID)
         case let .importSystemDockApps(dockID):
             confirmAndImportSystemDockApps(into: dockID)
         case let .resetDockSettings(dockID):
@@ -1010,6 +1015,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleDock(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         if let panel = dockPanels[id] {
+            closeFolderStack(for: id)
             dockResizeWorkItems[id]?.cancel()
             dockResizeWorkItems.removeValue(forKey: id)
             pendingAutoHideUpdates.removeValue(forKey: id)
@@ -1035,7 +1041,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.icon = NSApp.applicationIconImage
         alert.alertStyle = .warning
         alert.messageText = "Delete “\(dock.name)”?"
-        alert.informativeText = "This removes the dock from the current profile. The apps themselves will not be deleted."
+        alert.informativeText = "This removes the dock from the current profile. The pinned applications, files, and folders themselves will not be deleted."
         alert.addButton(withTitle: "Cancel")
         let deleteButton = alert.addButton(withTitle: "Delete")
         deleteButton.hasDestructiveAction = true
@@ -1045,6 +1051,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func performDeleteDock(_ id: UUID) {
+        closeFolderStack(for: id)
         dockResizeWorkItems[id]?.cancel()
         dockResizeWorkItems.removeValue(forKey: id)
         pendingAutoHideUpdates.removeValue(forKey: id)
@@ -1206,6 +1213,178 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesStore?.selectedDockID = duplicate.id
     }
 
+    private func chooseDockItems(for dockID: UUID) {
+        guard configManager.config.docks.contains(where: { $0.id == dockID }) else {
+            return
+        }
+
+        closeFolderStack()
+        let sourceDock = dockPanels[dockID]
+        let interactionToken = sourceDock?.beginTransientInteraction()
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Add Items to FreeDock"
+        openPanel.message = "Choose applications, documents, or folders to pin."
+        openPanel.prompt = "Add"
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = true
+        openPanel.allowsMultipleSelection = true
+        openPanel.resolvesAliases = true
+        openPanel.treatsFilePackagesAsDirectories = false
+
+        let completion: (NSApplication.ModalResponse) -> Void = {
+            [weak self, weak sourceDock] response in
+            if let interactionToken {
+                sourceDock?.endTransientInteraction(interactionToken)
+            }
+            guard response == .OK, let self else { return }
+
+            let currentItems = self.configManager.config.docks.first(where: {
+                $0.id == dockID
+            })?.items ?? []
+            let plan = DockItemPlanner.planAdding(
+                urls: openPanel.urls,
+                to: currentItems
+            )
+            guard plan.addedCount > 0 else {
+                NSSound.beep()
+                return
+            }
+            self.replaceDockItems(plan.items, for: dockID)
+        }
+
+        if let preferencesWindow = preferencesWindowController?.window,
+           preferencesWindow.isVisible
+        {
+            openPanel.beginSheetModal(
+                for: preferencesWindow,
+                completionHandler: completion
+            )
+        } else {
+            openPanel.begin(completionHandler: completion)
+        }
+    }
+
+    private func replaceDockItems(
+        _ items: [DockItem],
+        for dockID: UUID,
+        preservingOpenFolderStack: Bool = false
+    ) {
+        guard let index = configManager.config.docks.firstIndex(where: {
+            $0.id == dockID
+        }) else {
+            return
+        }
+
+        let previous = configManager.config.docks[index]
+        guard previous.items != items else { return }
+        var updated = previous
+        updated.items = items
+        configManager.config.docks[index] = updated
+
+        if let controller = folderStackController,
+           controller.dockID == dockID
+        {
+            let matchingItem = items.first { $0.id == controller.itemID }
+            if !preservingOpenFolderStack || matchingItem?.kind != .folder {
+                closeFolderStack()
+            }
+        }
+
+        preferencesStore?.replaceDock(updated)
+        reconcileDockRuntime(from: previous, to: updated)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func activateDockItem(
+        _ item: DockItem,
+        sourceRect: CGRect,
+        in panel: DockPanel
+    ) {
+        guard item.kind != .separator else { return }
+
+        if item.kind == .folder {
+            if let controller = folderStackController,
+               controller.dockID == panel.dockID,
+               controller.itemID == item.id
+            {
+                closeFolderStack()
+                return
+            }
+
+            closeFolderStack()
+            let dockID = panel.dockID
+            let itemID = item.id
+            let controller = FolderStackPanelController(
+                dockID: dockID,
+                item: item,
+                sourceRect: sourceRect,
+                sourceDock: panel,
+                onOptionsChanged: { [weak self] options in
+                    self?.updateFolderStackOptions(
+                        options,
+                        for: itemID,
+                        in: dockID
+                    )
+                },
+                onDidClose: { [weak self] in
+                    guard let self,
+                          self.folderStackController?.dockID == dockID,
+                          self.folderStackController?.itemID == itemID
+                    else {
+                        return
+                    }
+                    self.folderStackController = nil
+                }
+            )
+            folderStackController = controller
+            controller.show()
+            return
+        }
+
+        closeFolderStack()
+        guard FileManager.default.fileExists(atPath: item.path) else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+    }
+
+    private func updateFolderStackOptions(
+        _ options: FolderStackOptions,
+        for itemID: UUID,
+        in dockID: UUID
+    ) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }),
+        let itemIndex = dock.items.firstIndex(
+            where: { $0.id == itemID && $0.kind == .folder }
+        )
+        else {
+            return
+        }
+
+        guard dock.items[itemIndex].folderOptions != options else { return }
+        var items = dock.items
+        items[itemIndex].folderOptions = options
+        replaceDockItems(
+            items,
+            for: dockID,
+            preservingOpenFolderStack: true
+        )
+    }
+
+    private func closeFolderStack(for dockID: UUID? = nil) {
+        guard let controller = folderStackController,
+              dockID == nil || controller.dockID == dockID
+        else {
+            return
+        }
+        folderStackController = nil
+        controller.close()
+    }
+
     private func confirmAndImportSystemDockApps(into id: UUID) {
         guard let dockIndex = configManager.config.docks.firstIndex(where: { $0.id == id }) else {
             return
@@ -1306,7 +1485,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.icon = NSApp.applicationIconImage
         alert.alertStyle = .warning
         alert.messageText = "Reset settings for “\(dock.name)”?"
-        alert.informativeText = "Appearance, icon layout, orientation, indicators, and auto-hide will return to their defaults. The dock’s name, pinned apps, and saved position will stay unchanged."
+        alert.informativeText = "Appearance, icon layout, orientation, indicators, and auto-hide will return to their defaults. The dock’s name, pinned items, and saved position will stay unchanged."
         alert.addButton(withTitle: "Cancel")
         let resetButton = alert.addButton(withTitle: "Reset")
         resetButton.hasDestructiveAction = true
@@ -1324,7 +1503,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
         alert.messageText = "Copy “\(source.name)” settings?"
-        alert.informativeText = "This replaces the visible settings on \(targetIDs.count) other dock\(targetIDs.count == 1 ? "" : "s") in the current profile. Dock names, pinned apps, and saved positions will stay unchanged."
+        alert.informativeText = "This replaces the visible settings on \(targetIDs.count) other dock\(targetIDs.count == 1 ? "" : "s") in the current profile. Dock names, pinned items, and saved positions will stay unchanged."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Copy")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
@@ -1503,6 +1682,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildVisibleDock(_ dockID: UUID, using config: DockConfig) {
         guard let panel = dockPanels[dockID] else { return }
 
+        closeFolderStack(for: dockID)
         dockResizeWorkItems[dockID]?.cancel()
         dockResizeWorkItems.removeValue(forKey: dockID)
         pendingAutoHideUpdates.removeValue(forKey: dockID)
@@ -1533,18 +1713,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             items: Binding(
                 get: { self.configManager.config.docks.first(where: { $0.id == dockID })?.items ?? [] },
                 set: { newItems in
-                    guard let idx = self.configManager.config.docks.firstIndex(where: { $0.id == dockID }) else { return }
-                    self.configManager.config.docks[idx].items = newItems
+                    self.replaceDockItems(newItems, for: dockID)
                 }
             ),
             orientation: config.orientation,
             state: state,
-            onItemsChanged: { _ in
-                DispatchQueue.main.async { [weak self] in
-                    self?.scheduleDockResize(dockID)
-                }
+            onItemActivation: { [weak self, weak panel] item, sourceRect in
+                guard let self, let panel else { return }
+                self.activateDockItem(
+                    item,
+                    sourceRect: sourceRect,
+                    in: panel
+                )
             },
-            onAppLaunch: { item in NSWorkspace.shared.open(URL(fileURLWithPath: item.appPath)) }
+            onAddItemsRequested: { [weak self] in
+                self?.chooseDockItems(for: dockID)
+            }
         )
 
         panel.dockOrientation = config.orientation
@@ -1599,6 +1783,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeAllDockPanels() {
         TooltipManager.shared.hide()
+        closeFolderStack()
         for work in dockResizeWorkItems.values {
             work.cancel()
         }
@@ -1620,6 +1805,7 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidMove(_ panel: DockPanel) {
+        closeFolderStack(for: panel.dockID)
         let screen = DockDisplayManager.screen(containing: panel.frame)
         let snapped = panel.autoHideWhenDocked
             ? frameDockedToNearestEdge(
@@ -1654,10 +1840,12 @@ extension AppDelegate: DockPanelDelegate {
     }
 
     func dockPanelDidResize(_ panel: DockPanel, proposedIconSize: Double) {
+        closeFolderStack(for: panel.dockID)
         applyDockPreference(.iconSize(proposedIconSize), to: panel.dockID)
     }
 
     func dockPanelDidFinishResize(_ panel: DockPanel) {
+        closeFolderStack(for: panel.dockID)
         let snapped = snapFrame(
             panel.frame,
             on: effectiveScreen(for: panel)

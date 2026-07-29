@@ -27,6 +27,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private var isAutoHidden = false
     private var isUserMovingWindow = false
     private var moveCompletionWorkItem: DispatchWorkItem?
+    private var transientInteractionTokens = Set<UUID>()
 
     private let edgeTolerance: CGFloat = 2
     private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
@@ -191,6 +192,7 @@ class DockPanel: NSPanel, NSWindowDelegate {
         hideWorkItem?.cancel()
 
         guard autoHideWhenDocked,
+              transientInteractionTokens.isEmpty,
               let edge = autoHideEdge,
               let visibleFrame = activeScreen?.visibleFrame,
               let restingFrame = shownFrame
@@ -249,9 +251,30 @@ class DockPanel: NSPanel, NSWindowDelegate {
         setFrame(restingFrame, display: true)
     }
 
+    /// Keeps the dock visible while a child interaction, such as a folder stack,
+    /// is open. Tokens allow independent interactions to overlap safely.
+    func beginTransientInteraction() -> UUID {
+        let token = UUID()
+        transientInteractionTokens.insert(token)
+        revealImmediately()
+        hideWorkItem?.cancel()
+        return token
+    }
+
+    func endTransientInteraction(_ token: UUID) {
+        guard transientInteractionTokens.remove(token) != nil,
+              transientInteractionTokens.isEmpty
+        else {
+            return
+        }
+        updateAutoHideEdge()
+        scheduleAutoHide()
+    }
+
     func tearDown() {
         hideWorkItem?.cancel()
         moveCompletionWorkItem?.cancel()
+        transientInteractionTokens.removeAll()
         isUserMovingWindow = false
         isAutoHidden = false
         dockContainer?.hideRevealIndicator()

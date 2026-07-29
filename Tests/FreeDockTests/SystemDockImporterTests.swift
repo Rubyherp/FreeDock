@@ -218,6 +218,7 @@ func systemDockImportPreservesSymlinkPath() throws {
         bundleIdentifierForPath: { _ in nil }
     )
     #expect(firstPlan.items.first?.appPath == symlinkURL.path)
+    #expect(firstPlan.items.first?.kind == .application)
 
     let secondPlan = SystemDockImporter.planImport(
         apps: [app],
@@ -284,6 +285,8 @@ func systemDockImportPlanDeduplicates() {
         "/Applications/Gamma.app",
     ])
     #expect(plan.items.map(\.label) == ["Beta", "Gamma"])
+    #expect(plan.items.allSatisfy { $0.kind == .application })
+    #expect(plan.items.allSatisfy { $0.folderOptions == nil })
     #expect(plan.skippedCount == 3)
     #expect(mergedItems[0] == existingApp)
     #expect(mergedItems[1] == separator)
@@ -319,6 +322,38 @@ func systemDockImportPreservesCaseDistinctPaths() {
     )
 
     #expect(plan.items.count == 2)
+    #expect(plan.items.allSatisfy { $0.kind == .application })
+}
+
+@Test("System Dock bundle deduplication only considers application items")
+func systemDockImportIgnoresNonApplicationBundleIdentities() {
+    let documentPath = "/Users/example/Documents/Reference.pdf"
+    let existingDocument = DockItem(
+        kind: .document,
+        path: documentPath,
+        label: "Reference"
+    )
+    let app = SystemDockApp(
+        path: "/Applications/Reference.app",
+        label: "Reference",
+        bundleIdentifier: "com.example.reference"
+    )
+    var resolvedPaths: [String] = []
+
+    let plan = SystemDockImporter.planImport(
+        apps: [app],
+        existingItems: [existingDocument],
+        bundleIdentifierForPath: { path in
+            resolvedPaths.append(path)
+            return path == documentPath ? "com.example.reference" : nil
+        }
+    )
+
+    #expect(resolvedPaths.isEmpty)
+    #expect(plan.skippedCount == 0)
+    #expect(plan.items.count == 1)
+    #expect(plan.items.first?.kind == .application)
+    #expect(plan.items.first?.path == "/Applications/Reference.app")
 }
 
 private func systemDockTile(
