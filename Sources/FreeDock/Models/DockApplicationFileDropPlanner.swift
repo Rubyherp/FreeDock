@@ -134,6 +134,14 @@ enum DockApplicationFileDropPlanner {
             return .failure(.nonLocalFileURL)
         }
 
+        // Foundation versions disagree about `URL.path` for opaque relative
+        // file URLs such as `file:Document.txt`. Classify the stable lexical
+        // form first so the result is deterministic across supported macOS
+        // releases.
+        if hasOpaqueRelativeFilePath(url) {
+            return .failure(.relativePath)
+        }
+
         let path = url.path
         guard !path.isEmpty else {
             return .failure(.missingPath)
@@ -145,5 +153,18 @@ enum DockApplicationFileDropPlanner {
         return .success(
             URL(fileURLWithPath: path).standardizedFileURL
         )
+    }
+
+    private static func hasOpaqueRelativeFilePath(_ url: URL) -> Bool {
+        let absoluteString = url.absoluteString
+        guard let schemeSeparator = absoluteString.firstIndex(of: ":") else {
+            return false
+        }
+
+        let resource = absoluteString[absoluteString.index(after: schemeSeparator)...]
+        let pathResource = resource.prefix { character in
+            character != "?" && character != "#"
+        }
+        return !pathResource.isEmpty && !pathResource.hasPrefix("//")
     }
 }
