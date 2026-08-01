@@ -1,15 +1,17 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 4
+    static let currentFormatVersion = 5
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
     var recentFiles: [RecentFileRecord]
+    var globalShortcuts: GlobalShortcutSettings
 
     init(
         docks: [DockConfig] = [],
-        recentFiles: [RecentFileRecord] = []
+        recentFiles: [RecentFileRecord] = [],
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings()
     ) {
         let profile = DockProfile(name: "Default", docks: docks)
         profiles = [profile]
@@ -18,12 +20,14 @@ struct AppConfig: Codable, Sendable {
             recentFiles,
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        self.globalShortcuts = globalShortcuts
     }
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID? = nil,
-        recentFiles: [RecentFileRecord] = []
+        recentFiles: [RecentFileRecord] = [],
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings()
     ) {
         let availableProfiles = profiles.isEmpty ? [DockProfile(name: "Default")] : profiles
         self.profiles = availableProfiles
@@ -38,6 +42,7 @@ struct AppConfig: Codable, Sendable {
             recentFiles,
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        self.globalShortcuts = globalShortcuts
     }
 
     var docks: [DockConfig] {
@@ -65,6 +70,7 @@ struct AppConfig: Codable, Sendable {
         case activeProfileID
         case docks
         case recentFiles
+        case globalShortcuts
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +82,10 @@ struct AppConfig: Codable, Sendable {
             )) ?? [],
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        globalShortcuts = (try? container.decode(
+            GlobalShortcutSettings.self,
+            forKey: .globalShortcuts
+        )) ?? GlobalShortcutSettings()
 
         if let decodedProfiles = try container.decodeIfPresent([DockProfile].self, forKey: .profiles),
            !decodedProfiles.isEmpty
@@ -105,5 +115,6 @@ struct AppConfig: Codable, Sendable {
         try container.encode(activeProfileID, forKey: .activeProfileID)
         try container.encode(docks, forKey: .docks)
         try container.encode(recentFiles, forKey: .recentFiles)
+        try container.encode(globalShortcuts, forKey: .globalShortcuts)
     }
 }

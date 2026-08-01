@@ -51,8 +51,8 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Unlimited docks** — Create as many docks as you need, on any screen
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
-- **Quick Launch** — Press `⌘⇧Space`, type to search the nearest dock, choose with arrows or Tab, and press Return to open
-- **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
+- **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open
+- **Global shortcuts** — Customize Quick Launch and show/hide shortcuts, or switch profiles with `⌃⌥1…9`
 - **Launch at login** — Optionally start FreeDock automatically when you sign in on macOS 13 or later
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls
@@ -140,7 +140,7 @@ make run
 
 ## Configuration
 
-Docks, profiles, and FreeDock’s local recent-document history are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 4 adds Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Version 3 introduced typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
+Docks, profiles, shortcuts, and FreeDock’s local recent-document history are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 5 adds configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Version 3 introduced typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
 
 ```json
 {

@@ -118,7 +118,10 @@ func appConfigRecentFilePersistence() throws {
 
     #expect(config.recentFiles.count == RecentFileHistoryPlanner.maximumLimit)
     #expect(decoded.recentFiles == config.recentFiles)
-    #expect(object["formatVersion"] as? Int == 4)
+    #expect(
+        object["formatVersion"] as? Int
+            == AppConfig.currentFormatVersion
+    )
     #expect((object["recentFiles"] as? [[String: Any]])?.count == 100)
 
     let legacyData = """

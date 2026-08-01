@@ -661,6 +661,66 @@ struct DockPreferencesView: View {
                         )
                 }
             }
+
+            Divider()
+
+            shortcutRow(for: .showHideDocks)
+
+            Divider()
+
+            shortcutRow(for: .quickLaunch)
+
+            if let error = store.shortcutError {
+                Divider()
+
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            HStack {
+                Text("Click a shortcut, then type a new key combination.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Restore Defaults") {
+                    store.resetGlobalShortcuts()
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func shortcutRow(for action: GlobalShortcutAction) -> some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(action.title)
+                Text(shortcutDescription(for: action))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ShortcutRecorderButton(
+                shortcut: store.globalShortcuts.shortcut(for: action)
+            ) { shortcut in
+                store.updateGlobalShortcut(shortcut, for: action)
+            }
+            .frame(width: 135, height: 26)
+        }
+    }
+
+    private func shortcutDescription(
+        for action: GlobalShortcutAction
+    ) -> String {
+        switch action {
+        case .showHideDocks:
+            return "Toggle every dock in the active profile."
+        case .quickLaunch:
+            return "Search and open items from the nearest dock."
         }
     }
 

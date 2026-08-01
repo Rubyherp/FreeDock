@@ -17,7 +17,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Edge snapping and slide-away auto-hide, configurable per dock
 - Persisted dock positions and size
 - Saved dock profiles for activities such as Work, Design, and Focus
-- Global shortcuts to reveal docks and switch profiles
+- Configurable global shortcuts to reveal docks and open Quick Launch, plus profile switching shortcuts
 - Native Launch at Login control with approval status in Preferences
 - Quick Launch search and keyboard navigation for the nearest dock
 - A dedicated preferences window for per-dock behavior, appearance, and live Accessibility and Screen Recording status

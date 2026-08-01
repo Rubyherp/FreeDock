@@ -294,6 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 profiles: configManager.config.profiles,
                 activeProfileID: configManager.config.activeProfileID,
                 displays: DockDisplayManager.connectedDisplays,
+                globalShortcuts: configManager.config.globalShortcuts,
                 onChange: { [weak self] dockID, change in
                     self?.applyDockPreference(change, to: dockID)
                 },
@@ -326,6 +327,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 onOpenLoginItemsSettings: {
                     LaunchAtLoginController.openSystemSettings()
+                },
+                onGlobalShortcutsChange: { [weak self] settings in
+                    self?.applyGlobalShortcuts(settings)
                 }
             )
             preferencesStore = store
@@ -340,7 +344,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesStore?.reload(
             profiles: configManager.config.profiles,
             activeProfileID: configManager.config.activeProfileID,
-            displays: DockDisplayManager.connectedDisplays
+            displays: DockDisplayManager.connectedDisplays,
+            globalShortcuts: configManager.config.globalShortcuts
         )
         preferencesStore?.refreshPermissions()
         preferencesStore?.refreshLaunchAtLogin()
@@ -984,15 +989,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    private func configureGlobalShortcuts() {
+    @discardableResult
+    private func configureGlobalShortcuts() -> Bool {
         shortcutManager.reset()
-        shortcutManager.register(id: 1, keyCode: GlobalShortcutManager.showHideKeyCode) { [weak self] in
+        let settings = configManager.config.globalShortcuts
+        let showHide = settings.showHideDocks
+        let didRegisterShowHide = shortcutManager.register(
+            id: 1,
+            keyCode: showHide.keyCode,
+            modifiers: showHide.modifiers
+        ) { [weak self] in
             self?.toggleActiveProfileDocks()
         }
+        let quickLaunch = settings.quickLaunch
         let didRegisterQuickLaunch = shortcutManager.register(
             id: 100,
-            keyCode: GlobalShortcutManager.quickLaunchKeyCode,
-            modifiers: GlobalShortcutManager.quickLaunchModifiers
+            keyCode: quickLaunch.keyCode,
+            modifiers: quickLaunch.modifiers
         ) { [weak self] in
             self?.toggleQuickLaunch()
         }
@@ -1008,6 +1021,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.activateProfile(profile.id)
             }
         }
+        return didRegisterShowHide && didRegisterQuickLaunch
+    }
+
+    private func applyGlobalShortcuts(
+        _ settings: GlobalShortcutSettings
+    ) -> String? {
+        if let error = settings.validationError() {
+            return error
+        }
+
+        let previous = configManager.config.globalShortcuts
+        configManager.config.globalShortcuts = settings
+        guard configureGlobalShortcuts() else {
+            configManager.config.globalShortcuts = previous
+            configureGlobalShortcuts()
+            return "macOS could not register that shortcut. It may already be used by another app."
+        }
+
+        configManager.save()
+        return nil
     }
 
     @objc private func toggleQuickLaunch() {
