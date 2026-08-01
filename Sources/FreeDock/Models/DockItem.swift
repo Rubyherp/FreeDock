@@ -6,6 +6,7 @@ enum DockItemKind: String, Codable, Equatable, Sendable {
     case document
     case folder
     case separator
+    case trash
 }
 
 enum SmartStackSource: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
@@ -112,7 +113,8 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.kind = smartStackSource == nil ? kind : .folder
-        self.path = kind == .separator || smartStackSource != nil ? "" : path
+        self.path = kind == .separator || kind == .trash
+            || smartStackSource != nil ? "" : path
         self.label = label ?? smartStackSource?.defaultLabel
         self.smartStackSource = smartStackSource
         self.folderOptions = self.kind == .folder
@@ -221,6 +223,10 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         DockItem(id: id, kind: .separator, path: "")
     }
 
+    static func trash(id: UUID = UUID()) -> DockItem {
+        DockItem(id: id, kind: .trash, path: "", label: "Trash")
+    }
+
     /// Classifies a file-system URL for pinning without throwing for stale or invalid drops.
     static func pinnedItem(at url: URL) -> DockItem? {
         guard url.isFileURL else { return nil }
@@ -279,6 +285,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
 
     var fileURL: URL? {
         guard kind != .separator,
+              kind != .trash,
               smartStackSource == nil,
               !path.isEmpty
         else {
@@ -331,7 +338,9 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             (try? container.decode(String.self, forKey: .path))
             ?? (try? container.decode(String.self, forKey: .appPath))
             ?? ""
-        path = kind == .separator || smartStackSource != nil ? "" : decodedPath
+        path = kind == .separator || kind == .trash || smartStackSource != nil
+            ? ""
+            : decodedPath
         label =
             (try? container.decode(String.self, forKey: .label))
             ?? smartStackSource?.defaultLabel

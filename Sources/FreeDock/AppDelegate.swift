@@ -441,6 +441,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             chooseDockItems(for: dockID)
         case let .addSmartStack(dockID, source):
             addSmartStack(source, to: dockID)
+        case let .addTrash(dockID):
+            addTrash(to: dockID)
         case .clearRecentFiles:
             confirmAndClearRecentFiles()
         case let .importSystemDockApps(dockID):
@@ -528,6 +530,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = error.localizedDescription
+        alert.runModal()
+    }
+
+    private func confirmAndEmptyTrash() {
+        guard !TrashMonitor.shared.isEmpty else { return }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Empty Trash?"
+        alert.informativeText = "Items in Trash will be permanently deleted. This action cannot be undone."
+        alert.addButton(withTitle: "Cancel")
+        let emptyButton = alert.addButton(withTitle: "Empty Trash")
+        emptyButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        Task { @MainActor in
+            let messages = await Task.detached(priority: .utility) {
+                TrashController.emptyTrash().map(\.localizedDescription)
+            }.value
+            TrashMonitor.shared.refresh()
+            guard let first = messages.first else { return }
+            showTrashError(
+                title: messages.count == 1
+                    ? "An Item Couldn’t Be Deleted"
+                    : "Some Items Couldn’t Be Deleted",
+                message: first
+            )
+        }
+    }
+
+    private func showTrashError(title: String, error: Error) {
+        showTrashError(title: title, message: error.localizedDescription)
+    }
+
+    private func showTrashError(title: String, message: String) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
         alert.runModal()
     }
 
@@ -1725,6 +1768,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         replaceDockItems(plan.items, for: dockID)
     }
 
+    private func addTrash(to dockID: UUID) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) else { return }
+        let plan = DockItemPlanner.planAddingTrash(to: dock.items)
+        guard plan.addedCount > 0 else {
+            NSSound.beep()
+            return
+        }
+        replaceDockItems(plan.items, for: dockID)
+    }
+
     private func replaceDockItems(
         _ items: [DockItem],
         for dockID: UUID,
@@ -1802,7 +1857,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .unchanged:
             itemDragCoordinator.finish(sessionID: session.id)
             return true
-        case .moved, .copied:
+        case .moved, .copied, .removed:
             break
         }
 
@@ -1869,6 +1924,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard item.kind != .separator else { return }
 
         windowPreviewController.close(resetNativeController: false)
+        if item.kind == .trash {
+            closeFolderStack()
+            guard let trashURL = TrashController.trashURL,
+                  NSWorkspace.shared.open(trashURL)
+            else { NSSound.beep(); return }
+            return
+        }
         if item.kind == .folder {
             if let controller = folderStackController,
                controller.dockID == panel.dockID,
@@ -2721,6 +2783,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     with: item,
                     from: panel
                 )
+            },
+            onCanMoveFilesToTrash: { urls in
+                TrashController.canRecycle(urls)
+            },
+            onMoveFilesToTrash: { [weak self] urls in
+                TrashController.recycle(urls) { errorMessage in
+                    guard let errorMessage else { return }
+                    self?.showTrashError(
+                        title: "Some Items Couldn’t Be Moved to Trash",
+                        message: errorMessage
+                    )
+                }
+            },
+            onEmptyTrashRequested: { [weak self] in
+                self?.confirmAndEmptyTrash()
             },
             onApplicationHoverChanged: {
                 [weak self, weak panel] item, sourceRect, hovering in

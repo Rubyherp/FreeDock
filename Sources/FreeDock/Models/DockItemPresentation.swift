@@ -10,6 +10,27 @@ struct DockItemPresentation {
     let badgeSymbolName: String?
 
     static func resolve(_ item: DockItem) -> DockItemPresentation {
+        if item.kind == .trash {
+            let isEmpty = TrashMonitor.shared.isEmpty
+            let image = NSImage(
+                named: isEmpty
+                    ? NSImage.trashEmptyName
+                    : NSImage.trashFullName
+            ) ?? systemIcon(
+                preferredName: "trash.fill",
+                fallbackName: "trash",
+                accessibilityDescription: "Trash"
+            )
+            image.size = NSSize(width: 64, height: 64)
+            return DockItemPresentation(
+                displayName: item.label.flatMap(\.nonEmpty) ?? "Trash",
+                icon: image,
+                bundleID: nil,
+                isAvailable: TrashController.trashURL != nil,
+                kindDescription: isEmpty ? "empty trash" : "trash containing items",
+                badgeSymbolName: nil
+            )
+        }
         if let source = item.smartStackSource {
             return resolveSmartStack(item, source: source)
         }
@@ -145,6 +166,7 @@ extension DockItemKind {
         case .document: return "Document"
         case .folder: return "Folder"
         case .separator: return "Separator"
+        case .trash: return "Trash"
         }
     }
 
@@ -154,6 +176,7 @@ extension DockItemKind {
         case .document: return "doc"
         case .folder: return "folder"
         case .separator: return "minus"
+        case .trash: return "trash"
         }
     }
 }

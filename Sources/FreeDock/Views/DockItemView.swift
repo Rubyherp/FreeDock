@@ -30,6 +30,7 @@ struct DockItemView: View {
     let onClearRecentFilesRequested: () -> Void
     let onOpenDocumentWithApplication: (URL) -> Void
     let onChooseFilesForApplication: () -> Void
+    let onEmptyTrashRequested: () -> Void
     let onApplicationHoverChanged: (Bool, NSRect) -> Void
     let onShowApplicationWindows: (NSRect) -> Void
     let onEnableWindowThumbnails: () -> Void
@@ -37,6 +38,7 @@ struct DockItemView: View {
     let isWindowPreviewScreenCaptureTrusted: () -> Bool
 
     @ObservedObject private var monitor = RunningAppMonitor.shared
+    @ObservedObject private var trashMonitor = TrashMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var presentation: DockItemPresentation?
     @State private var isHovering = false
@@ -148,6 +150,9 @@ struct DockItemView: View {
         )
         .onAppear(perform: refreshPresentation)
         .onChange(of: item) { _ in refreshPresentation() }
+        .onChange(of: trashMonitor.isEmpty) { _ in
+            if item.kind == .trash { refreshPresentation() }
+        }
     }
 
     @ViewBuilder
@@ -196,7 +201,9 @@ struct DockItemView: View {
 
     @ViewBuilder
     private var itemContextMenu: some View {
-        if item.smartStackSource == .recentFiles {
+        if item.kind == .trash {
+            trashMenu
+        } else if item.smartStackSource == .recentFiles {
             recentFilesMenu
         } else if item.smartStackSource == .downloads {
             downloadsMenu
@@ -220,6 +227,18 @@ struct DockItemView: View {
         } else {
             Button("Remove from Dock", role: .destructive) { onRemove() }
         }
+    }
+
+    @ViewBuilder
+    private var trashMenu: some View {
+        Button("Open Trash") { activate() }
+        Divider()
+        Button(
+            "Empty Trash…",
+            role: .destructive,
+            action: onEmptyTrashRequested
+        )
+        .disabled(trashMonitor.isEmpty)
     }
 
     @ViewBuilder
@@ -532,6 +551,8 @@ struct DockItemView: View {
             return "Opens the document in its default application."
         case .separator:
             return ""
+        case .trash:
+            return "Opens Trash. Drop files here to move them to Trash, or use the context menu to empty it."
         }
     }
 

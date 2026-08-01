@@ -229,6 +229,35 @@ func dockItemPlannerOrderAndUniqueness() throws {
     #expect(plan.items.suffix(2).map(\.kind) == [.document, .folder])
 }
 
+@Test("Trash items round-trip without a filesystem path")
+func trashItemRoundTrip() throws {
+    let item = DockItem.trash()
+    let data = try JSONEncoder().encode(item)
+    let decoded = try JSONDecoder().decode(DockItem.self, from: data)
+
+    #expect(decoded == item)
+    #expect(decoded.kind == .trash)
+    #expect(decoded.path.isEmpty)
+    #expect(decoded.fileURL == nil)
+    #expect(decoded.label == "Trash")
+}
+
+@Test("Dock item planner allows one Trash item per dock")
+func dockItemPlannerTrashUniqueness() throws {
+    let existing = [DockItem.separator()]
+    let added = DockItemPlanner.planAddingTrash(to: existing)
+    let trash = try #require(added.items.last)
+
+    #expect(added.addedCount == 1)
+    #expect(added.skippedCount == 0)
+    #expect(trash.kind == .trash)
+
+    let duplicate = DockItemPlanner.planAddingTrash(to: added.items)
+    #expect(duplicate.items == added.items)
+    #expect(duplicate.addedCount == 0)
+    #expect(duplicate.skippedCount == 1)
+}
+
 private func makeDockItemTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("freedock-items-\(UUID().uuidString)")

@@ -214,6 +214,73 @@ struct DockItemTransferPlannerTests {
         #expect(optionReorder.outcome == .moved(itemID: first.id))
     }
 
+    @Test("Dropping a pinned item on Trash removes only the pinned item")
+    func sameDockTrashRemoval() {
+        let app = DockItem(appPath: "/Applications/Example.app")
+        let trash = DockItem.trash()
+        let dock = DockConfig(name: "Dock", items: [app, trash])
+
+        let plan = DockItemTransferPlanner.planTransfer(
+            itemID: app.id,
+            from: dock,
+            to: dock,
+            destination: .trash(trash.id)
+        )
+
+        #expect(plan.sourceItems == [trash])
+        #expect(plan.targetItems == [trash])
+        #expect(plan.outcome == .removed(itemID: app.id))
+        #expect(plan.didTransfer)
+    }
+
+    @Test("Cross-dock Trash removal leaves the target dock unchanged")
+    func crossDockTrashRemoval() {
+        let document = DockItem.document(
+            at: URL(fileURLWithPath: "/tmp/Document.pdf")
+        )
+        let source = DockConfig(name: "Source", items: [document])
+        let trash = DockItem.trash()
+        let target = DockConfig(name: "Target", items: [trash])
+
+        let plan = DockItemTransferPlanner.planTransfer(
+            itemID: document.id,
+            from: source,
+            to: target,
+            operation: .copy,
+            destination: .trash(trash.id)
+        )
+
+        #expect(plan.sourceItems.isEmpty)
+        #expect(plan.targetItems == target.items)
+        #expect(plan.outcome == .removed(itemID: document.id))
+    }
+
+    @Test("Trash removal rejects invalid targets and the Trash itself")
+    func invalidTrashRemoval() {
+        let app = DockItem(appPath: "/Applications/Example.app")
+        let trash = DockItem.trash()
+        let dock = DockConfig(name: "Dock", items: [app, trash])
+        let missingID = UUID()
+
+        let missing = DockItemTransferPlanner.planTransfer(
+            itemID: app.id,
+            from: dock,
+            to: dock,
+            destination: .trash(missingID)
+        )
+        let selfRemoval = DockItemTransferPlanner.planTransfer(
+            itemID: trash.id,
+            from: dock,
+            to: dock,
+            destination: .trash(trash.id)
+        )
+
+        #expect(missing.outcome == .rejected(.invalidTrashTarget(missingID)))
+        #expect(selfRemoval.outcome == .rejected(.cannotRemoveTrash))
+        #expect(missing.sourceItems == dock.items)
+        #expect(selfRemoval.sourceItems == dock.items)
+    }
+
     @Test("Downloads stacks and the real Downloads folder conflict")
     func downloadsIdentityConflict() {
         let downloadsURL = URL(fileURLWithPath: "/tmp/FreeDock Downloads")

@@ -128,6 +128,25 @@ func quickLaunchSearchFields() {
     #expect(labelResults.first?.matchKind == .prefix)
 }
 
+@Test("Quick Launch includes and searches the Trash item")
+func quickLaunchTrash() {
+    let trash = DockItem.trash(id: quickLaunchID(20))
+
+    let emptyResults = QuickLaunchSearch.results(
+        in: [trash],
+        matching: ""
+    )
+    let searchResults = QuickLaunchSearch.results(
+        in: [trash],
+        matching: "trash"
+    )
+
+    #expect(emptyResults.map(\.id) == [trash.id])
+    #expect(emptyResults.first?.displayLabel == "Trash")
+    #expect(searchResults.map(\.id) == [trash.id])
+    #expect(searchResults.first?.matchKind == .exact)
+}
+
 @Test("Quick launch matching is case, width, diacritic, and whitespace tolerant")
 func quickLaunchNormalizedMatching() {
     let resume = quickLaunchItem(1, label: "  Résumé   Writer  ")

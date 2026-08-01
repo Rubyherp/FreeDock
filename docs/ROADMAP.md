@@ -9,6 +9,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Cross-dock item moves and Option-copy with metadata-preserving duplicate protection
 - Live folder stacks with automatic, grid, and list browsing; configurable sorting and hidden-file visibility
 - Recent Files and Downloads smart stacks, with a local, clearable 50-document history and dynamic Downloads resolution
+- A native Trash item with live empty/full state, Finder drops, and confirmed emptying
 - Native magnification, running-app indicators, tooltips, and launch animation
 - Optional per-dock recent/running application section with local-only history and pinning
 - Reduced-motion-aware dock, stack, reorder, and preview transitions with descriptive VoiceOver controls

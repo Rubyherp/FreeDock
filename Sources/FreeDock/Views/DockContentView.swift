@@ -39,6 +39,9 @@ struct DockContentView: View {
         [URL]
     ) -> Bool
     let onChooseFilesForApplication: @MainActor (DockItem) -> Void
+    let onCanMoveFilesToTrash: @MainActor ([URL]) -> Bool
+    let onMoveFilesToTrash: @MainActor ([URL]) -> Bool
+    let onEmptyTrashRequested: @MainActor () -> Void
     let onApplicationHoverChanged: @MainActor (
         DockItem,
         NSRect,
@@ -641,6 +644,7 @@ struct DockContentView: View {
             onChooseFilesForApplication: {
                 onChooseFilesForApplication(item)
             },
+            onEmptyTrashRequested: onEmptyTrashRequested,
             onApplicationHoverChanged: { hovering, screenRect in
                 onApplicationHoverChanged(
                     item,
@@ -699,6 +703,17 @@ struct DockContentView: View {
 
         if isTransientApplication {
             applicationFileDropTarget(cell, for: item)
+        } else if item.kind == .trash {
+            applicationFileDropTarget(
+                cell.onDrop(
+                    of: [Self.dockItemType],
+                    delegate: itemDropDelegate(
+                        destination: .trash(item.id),
+                        isTargeted: dropTargetBinding(for: item.id)
+                    )
+                ),
+                for: item
+            )
         } else {
             let interactiveCell = cell
             .onDrag {
@@ -852,7 +867,13 @@ struct DockContentView: View {
                 : (isChecking ? .gray : .accentColor)
             let badgeSymbol = isRejected
                 ? "xmark"
-                : (isChecking ? "ellipsis" : "arrow.up.forward")
+                : (
+                    isChecking
+                        ? "ellipsis"
+                        : (applicationFileDropPresentation == .trash
+                            ? "trash.fill"
+                            : "arrow.up.forward")
+                )
 
             shape
                 .fill(highlightColor.opacity(0.18))
@@ -904,7 +925,31 @@ struct DockContentView: View {
     @ViewBuilder
     private func dockItemDropIndicator(for item: DockItem) -> some View {
         if dropTargetItem == item.id {
-            if orientation == .horizontal {
+            if item.kind == .trash {
+                let shape = RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
+                )
+                shape
+                    .fill(Color.red.opacity(0.18))
+                    .padding(1)
+                shape
+                    .strokeBorder(Color.red, lineWidth: 2)
+                    .padding(1.5)
+                    .shadow(color: Color.red.opacity(0.3), radius: 6)
+                Image(systemName: "minus")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(Color.red, in: Circle())
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .bottomTrailing
+                    )
+                    .padding(2)
+                    .accessibilityHidden(true)
+            } else if orientation == .horizontal {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(
@@ -1276,6 +1321,10 @@ struct DockContentView: View {
         _ urls: [URL],
         onto item: DockItem
     ) {
+        if item.kind == .trash {
+            guard onMoveFilesToTrash(urls) else { NSSound.beep(); return }
+            return
+        }
         if urls.contains(where: shouldPinAsDockItem) {
             addDroppedItems(urls)
             return
@@ -1336,8 +1385,10 @@ struct DockContentView: View {
         _ item: DockItem
     ) -> Bool {
         !state.isQuickLaunchPresented
-            && item.kind == .application
-            && item.fileURL != nil
+            && (
+                (item.kind == .application && item.fileURL != nil)
+                    || item.kind == .trash
+            )
     }
 
     private func beginApplicationFileDropPreflight(
@@ -1396,7 +1447,15 @@ struct DockContentView: View {
             }
 
             applicationFileDropURLs = result.urls
-            if result.urls.contains(where: shouldPinAsDockItem) {
+            if item.kind == .trash {
+                setApplicationFileDropPresentation(
+                    onCanMoveFilesToTrash(result.urls)
+                        ? .trash
+                        : .rejected,
+                    for: item,
+                    itemCount: result.urls.count
+                )
+            } else if result.urls.contains(where: shouldPinAsDockItem) {
                 let plan = DockItemPlanner.planAdding(
                     urls: result.urls,
                     to: displayedItems ?? items
@@ -1446,6 +1505,8 @@ struct DockContentView: View {
         case .rejected:
             announcement =
                 "Drop unavailable for \(applicationName)."
+        case .trash:
+            announcement = "Move \(count) \(noun) to Trash."
         }
 
         NSAccessibility.post(
@@ -1790,6 +1851,7 @@ private enum ApplicationFileDropPresentation: Equatable {
     case checking
     case open
     case pin
+    case trash
     case rejected
 }
 

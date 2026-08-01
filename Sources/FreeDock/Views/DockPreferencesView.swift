@@ -475,6 +475,9 @@ struct DockPreferencesView: View {
                                 smartStack: .downloads,
                                 to: dock.items
                             ).addedCount > 0
+                        let canAddTrash = DockItemPlanner.planAddingTrash(
+                            to: dock.items
+                        ).addedCount > 0
 
                         VStack(alignment: .leading, spacing: 5) {
                             settingRow("Recent & running apps") {
@@ -503,6 +506,17 @@ struct DockPreferencesView: View {
                         }
                         .disabled(!dock.showDynamicApplications)
                         .opacity(dock.showDynamicApplications ? 1 : 0.48)
+
+                        Divider()
+
+                        actionRow(
+                            title: "Trash",
+                            description: "Open Trash, move dropped files into it, or empty it after confirmation.",
+                            buttonTitle: canAddTrash ? "Add" : "Added",
+                            isDisabled: !canAddTrash
+                        ) {
+                            store.perform(.addTrash(dock.id))
+                        }
 
                         Divider()
 

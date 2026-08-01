@@ -60,6 +60,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
 - **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
 - **Smart stacks** — Add Recent Files and Downloads without pinning fixed paths; Recent Files tracks successful document opens through FreeDock, while Downloads resolves for the current user
+- **Native Trash** — Add Trash to any dock, drop Finder items onto it to recycle them, and empty it from the right-click menu after confirmation
 - **Reorder** — Drag apps, documents, folders, and separators into any arrangement
 - **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
@@ -117,7 +118,7 @@ make run
 2. Select **New Dock → Horizontal** or **Vertical**
 3. Drag applications, documents, or folders from Finder into the dock
 4. Click an app or document to open it, or click a folder to browse its live contents
-5. Add a **Recent Files** or **Downloads** smart stack from the dock’s context menu or Preferences
+5. Add a **Recent Files**, **Downloads**, or **Trash** item from the dock’s context menu or Preferences
 6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
 7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
 8. Open **Preferences → Permissions** (or right-click a running app and choose **Enable Window Switching…**) to request Accessibility access from macOS

@@ -7,6 +7,23 @@ struct DockItemAdditionPlan: Equatable, Sendable {
 }
 
 enum DockItemPlanner {
+    static func planAddingTrash(
+        to existingItems: [DockItem]
+    ) -> DockItemAdditionPlan {
+        guard !existingItems.contains(where: { $0.kind == .trash }) else {
+            return DockItemAdditionPlan(
+                items: existingItems,
+                addedCount: 0,
+                skippedCount: 1
+            )
+        }
+        return DockItemAdditionPlan(
+            items: existingItems + [.trash()],
+            addedCount: 1,
+            skippedCount: 0
+        )
+    }
+
     /// Produces one ordered update, preserving Finder's URL order and removing aliases
     /// or repeated paths that resolve to an item already in the dock.
     static func planAdding(
