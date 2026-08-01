@@ -10,6 +10,7 @@ struct DockContentView: View {
     let orientation: Orientation
     @ObservedObject var state: DockState
     @ObservedObject var itemDragCoordinator: DockItemDragCoordinator
+    @ObservedObject private var applicationMonitor = RunningAppMonitor.shared
     let onItemActivation: @MainActor (DockItem, NSRect) -> Void
     let onItemTransfer: @MainActor (
         DockItemDragSession,
@@ -38,6 +39,12 @@ struct DockContentView: View {
         [URL]
     ) -> Bool
     let onChooseFilesForApplication: @MainActor (DockItem) -> Void
+    let onCanMoveFilesToTrash: @MainActor ([URL]) -> Bool
+    let onMoveFilesToTrash: @MainActor ([URL]) -> Bool
+    let onEmptyTrashRequested: @MainActor () -> Void
+    let onRenameItemRequested: @MainActor (DockItem) -> Void
+    let onChooseCustomIconRequested: @MainActor (DockItem) -> Void
+    let onRestoreOriginalIconRequested: @MainActor (DockItem) -> Void
     let onApplicationHoverChanged: @MainActor (
         DockItem,
         NSRect,
@@ -76,18 +83,23 @@ struct DockContentView: View {
     @State private var externalFileDropExpiryWorkItem: DispatchWorkItem?
     @State private var quickLaunchQuery = ""
     @State private var quickLaunchSelection = QuickLaunchSelection()
+    @State private var dynamicApplicationItems: [DockItem] = []
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
     }
 
+    private var presentedItems: [DockItem] {
+        currentItems + dynamicApplicationItems
+    }
+
     private var resizableItemCount: Int {
-        DockResizeGestureMath.resizableItemCount(in: currentItems)
+        DockResizeGestureMath.resizableItemCount(in: presentedItems)
     }
 
     private var quickLaunchResults: [QuickLaunchSearchResult] {
         QuickLaunchSearch.results(
-            in: currentItems,
+            in: presentedItems,
             matching: quickLaunchQuery
         )
     }
@@ -150,22 +162,40 @@ struct DockContentView: View {
             }
             .onAppear {
                 displayedItems = items
+                refreshDynamicApplications(pinnedItems: items)
                 if state.isQuickLaunchPresented {
                     resetQuickLaunch()
                 }
             }
             .onChange(of: items) {
                 displayedItems = $0
+                refreshDynamicApplications(pinnedItems: $0)
                 reconcileQuickLaunchSelection()
             }
             .onChange(of: itemDragCoordinator.contentRevision) { _ in
-                withAnimation(.spring(
-                    response: 0.3,
-                    dampingFraction: 0.74
-                )) {
+                if reduceMotion {
                     displayedItems = items
+                } else {
+                    withAnimation(.spring(
+                        response: 0.3,
+                        dampingFraction: 0.74
+                    )) {
+                        displayedItems = items
+                    }
                 }
                 reconcileQuickLaunchSelection()
+            }
+            .onChange(of: applicationMonitor.recentApplications) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: applicationMonitor.runningBundleIDs) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: state.showDynamicApplications) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: state.dynamicApplicationLimit) { _ in
+                refreshDynamicApplications()
             }
             .onChange(of: state.quickLaunchFocusGeneration) { _ in
                 resetQuickLaunch()
@@ -227,6 +257,15 @@ struct DockContentView: View {
                             resizableItemCount: resizableItemCount
                         )
                         .frame(width: 18)
+                        .help("Drag to resize this dock")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Resize \(state.name) dock")
+                        .accessibilityValue(
+                            "\(Int(iconSize.rounded())) pixel icons"
+                        )
+                        .accessibilityHint(
+                            "Drag horizontally to change icon size."
+                        )
                     }
                 }
                 .padding(.top, magnificationHeadroom)
@@ -247,6 +286,15 @@ struct DockContentView: View {
                             resizableItemCount: resizableItemCount
                         )
                         .frame(height: 18)
+                        .help("Drag to resize this dock")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Resize \(state.name) dock")
+                        .accessibilityValue(
+                            "\(Int(iconSize.rounded())) pixel icons"
+                        )
+                        .accessibilityHint(
+                            "Drag vertically to change icon size."
+                        )
                     }
                 }
                 .padding(.horizontal, magnificationHeadroom * 0.52)
@@ -262,7 +310,11 @@ struct DockContentView: View {
             )
             .frame(width: 16, height: iconSize + 11)
             .help("Drag to move this dock")
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Move \(state.name) dock")
+            .accessibilityHint(
+                "Drag to reposition the dock on this display."
+            )
         } else {
             DockDragHandleRepresentable(
                 panel: panel,
@@ -270,7 +322,11 @@ struct DockContentView: View {
             )
             .frame(width: iconSize + 11, height: 16)
             .help("Drag to move this dock")
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Move \(state.name) dock")
+            .accessibilityHint(
+                "Drag to reposition the dock on this display."
+            )
         }
     }
 
@@ -341,7 +397,7 @@ struct DockContentView: View {
                 VStack(spacing: state.itemSpacing) { content }
             }
 
-            if quickLaunchResults.isEmpty, !currentItems.isEmpty {
+            if quickLaunchResults.isEmpty, !presentedItems.isEmpty {
                 Text(
                     quickLaunchQuery.isEmpty
                         ? "No launchable items"
@@ -436,7 +492,7 @@ struct DockContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if currentItems.isEmpty {
+        if presentedItems.isEmpty {
             Label("Drop apps, files, or folders", systemImage: "plus.circle.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(chromeColor.opacity(0.65))
@@ -473,6 +529,28 @@ struct DockContentView: View {
                     separatorCell(item)
                 } else {
                     dockItemCell(item, at: index)
+                }
+            }
+
+            if !dynamicApplicationItems.isEmpty {
+                if !currentItems.isEmpty {
+                    DockSeparatorView(
+                        orientation: orientation,
+                        iconSize: iconSize,
+                        color: chromeColor
+                    )
+                    .accessibilityLabel("Recent and running applications")
+                }
+
+                ForEach(
+                    Array(dynamicApplicationItems.enumerated()),
+                    id: \.element.id
+                ) { offset, item in
+                    dockItemCell(
+                        item,
+                        at: currentItems.count + offset,
+                        isTransientApplication: true
+                    )
                 }
             }
 
@@ -540,16 +618,24 @@ struct DockContentView: View {
     @ViewBuilder
     private func dockItemCell(
         _ item: DockItem,
-        at index: Int
+        at index: Int,
+        isTransientApplication: Bool = false
     ) -> some View {
         let cell = DockItemView(
             item: item,
             iconSize: iconSize,
-            scale: scale(for: index, in: currentItems),
+            scale: scale(for: index, in: presentedItems),
             onActivate: { screenRect in
                 onItemActivation(item, screenRect)
             },
             onRemove: { removeItem(item) },
+            isTransientApplication: isTransientApplication,
+            onKeepInDock: {
+                guard isTransientApplication else { return }
+                var updated = displayedItems ?? items
+                updated.append(item)
+                commitItems(updated)
+            },
             onFolderOptionsChanged: { options in
                 onFolderOptionsChanged(item.id, options)
             },
@@ -560,6 +646,14 @@ struct DockContentView: View {
             },
             onChooseFilesForApplication: {
                 onChooseFilesForApplication(item)
+            },
+            onEmptyTrashRequested: onEmptyTrashRequested,
+            onRenameRequested: { onRenameItemRequested(item) },
+            onChooseCustomIconRequested: {
+                onChooseCustomIconRequested(item)
+            },
+            onRestoreOriginalIconRequested: {
+                onRestoreOriginalIconRequested(item)
             },
             onApplicationHoverChanged: { hovering, screenRect in
                 onApplicationHoverChanged(
@@ -617,7 +711,21 @@ struct DockContentView: View {
             value: selectedQuickLaunchItemID
         )
 
-        let interactiveCell = cell
+        if isTransientApplication {
+            applicationFileDropTarget(cell, for: item)
+        } else if item.kind == .trash {
+            applicationFileDropTarget(
+                cell.onDrop(
+                    of: [Self.dockItemType],
+                    delegate: itemDropDelegate(
+                        destination: .trash(item.id),
+                        isTargeted: dropTargetBinding(for: item.id)
+                    )
+                ),
+                for: item
+            )
+        } else {
+            let interactiveCell = cell
             .onDrag {
                 dragProvider(for: item)
             } preview: {
@@ -636,7 +744,31 @@ struct DockContentView: View {
                 )
             )
 
-        applicationFileDropTarget(interactiveCell, for: item)
+            applicationFileDropTarget(interactiveCell, for: item)
+        }
+    }
+
+    private func refreshDynamicApplications(
+        pinnedItems: [DockItem]? = nil
+    ) {
+        let updated: [DockItem] = if state.showDynamicApplications {
+            DynamicApplicationSectionPlanner.items(
+                records: applicationMonitor.recentApplications,
+                runningBundleIDs: applicationMonitor.runningBundleIDs,
+                pinnedItems: pinnedItems ?? currentItems,
+                limit: state.dynamicApplicationLimit
+            )
+        } else {
+            []
+        }
+        let needsResize = updated.count != dynamicApplicationItems.count
+        dynamicApplicationItems = updated
+        if needsResize {
+            DispatchQueue.main.async {
+                panel.resizeToFitContent()
+            }
+        }
+        reconcileQuickLaunchSelection()
     }
 
     @ViewBuilder
@@ -745,7 +877,13 @@ struct DockContentView: View {
                 : (isChecking ? .gray : .accentColor)
             let badgeSymbol = isRejected
                 ? "xmark"
-                : (isChecking ? "ellipsis" : "arrow.up.forward")
+                : (
+                    isChecking
+                        ? "ellipsis"
+                        : (applicationFileDropPresentation == .trash
+                            ? "trash.fill"
+                            : "arrow.up.forward")
+                )
 
             shape
                 .fill(highlightColor.opacity(0.18))
@@ -797,7 +935,31 @@ struct DockContentView: View {
     @ViewBuilder
     private func dockItemDropIndicator(for item: DockItem) -> some View {
         if dropTargetItem == item.id {
-            if orientation == .horizontal {
+            if item.kind == .trash {
+                let shape = RoundedRectangle(
+                    cornerRadius: 12,
+                    style: .continuous
+                )
+                shape
+                    .fill(Color.red.opacity(0.18))
+                    .padding(1)
+                shape
+                    .strokeBorder(Color.red, lineWidth: 2)
+                    .padding(1.5)
+                    .shadow(color: Color.red.opacity(0.3), radius: 6)
+                Image(systemName: "minus")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(Color.red, in: Circle())
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .bottomTrailing
+                    )
+                    .padding(2)
+                    .accessibilityHidden(true)
+            } else if orientation == .horizontal {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(
@@ -1072,8 +1234,12 @@ struct DockContentView: View {
                 }
             }
         } else {
-            withAnimation(.easeOut(duration: 0.12)) {
+            if reduceMotion {
                 dropPulse = false
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    dropPulse = false
+                }
             }
         }
     }
@@ -1165,6 +1331,10 @@ struct DockContentView: View {
         _ urls: [URL],
         onto item: DockItem
     ) {
+        if item.kind == .trash {
+            guard onMoveFilesToTrash(urls) else { NSSound.beep(); return }
+            return
+        }
         if urls.contains(where: shouldPinAsDockItem) {
             addDroppedItems(urls)
             return
@@ -1225,8 +1395,10 @@ struct DockContentView: View {
         _ item: DockItem
     ) -> Bool {
         !state.isQuickLaunchPresented
-            && item.kind == .application
-            && item.fileURL != nil
+            && (
+                (item.kind == .application && item.fileURL != nil)
+                    || item.kind == .trash
+            )
     }
 
     private func beginApplicationFileDropPreflight(
@@ -1285,7 +1457,15 @@ struct DockContentView: View {
             }
 
             applicationFileDropURLs = result.urls
-            if result.urls.contains(where: shouldPinAsDockItem) {
+            if item.kind == .trash {
+                setApplicationFileDropPresentation(
+                    onCanMoveFilesToTrash(result.urls)
+                        ? .trash
+                        : .rejected,
+                    for: item,
+                    itemCount: result.urls.count
+                )
+            } else if result.urls.contains(where: shouldPinAsDockItem) {
                 let plan = DockItemPlanner.planAdding(
                     urls: result.urls,
                     to: displayedItems ?? items
@@ -1335,6 +1515,8 @@ struct DockContentView: View {
         case .rejected:
             announcement =
                 "Drop unavailable for \(applicationName)."
+        case .trash:
+            announcement = "Move \(count) \(noun) to Trash."
         }
 
         NSAccessibility.post(
@@ -1523,7 +1705,11 @@ struct DockContentView: View {
     private func removeItem(_ item: DockItem) {
         var updatedItems = displayedItems ?? items
         updatedItems.removeAll(where: { $0.id == item.id })
-        withAnimation { displayedItems = updatedItems }
+        if reduceMotion {
+            displayedItems = updatedItems
+        } else {
+            withAnimation { displayedItems = updatedItems }
+        }
         items = updatedItems
     }
 
@@ -1675,6 +1861,7 @@ private enum ApplicationFileDropPresentation: Equatable {
     case checking
     case open
     case pin
+    case trash
     case rejected
 }
 

@@ -1,11 +1,14 @@
 import Cocoa
+import Carbon.HIToolbox
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var dockPanels: [UUID: DockPanel] = [:]
     private let shortcutManager = GlobalShortcutManager()
+    private let actionUndoManager = UndoManager()
     private let configManager = ConfigManager(
         configPath: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/freedock.json")
@@ -15,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockStates: [UUID: DockState] = [:]
     private var preferencesStore: DockPreferencesStore?
     private var preferencesWindowController: PreferencesWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var menuRefreshWorkItem: DispatchWorkItem?
     private var dockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
     private var liveDockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
@@ -22,6 +26,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeDockResizeIDs: Set<UUID> = []
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
     private var screenParametersWorkItem: DispatchWorkItem?
+    private var registeredShortcutSettings: GlobalShortcutSettings?
+    private var observesProfileAutomation = false
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
     private var folderStackController: FolderStackPanelController?
     private let windowPreviewController =
@@ -30,6 +36,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickLaunchResizeWorkItem: DispatchWorkItem?
     private var hideRestoredDocksAfterFolderStack = false
     private var itemDragInteractionTokens: [UUID: UUID] = [:]
+    private static let onboardingCompletionKey =
+        "FreeDockHasCompletedOnboardingV1"
 
     private struct QuickLaunchSession {
         let dockID: UUID
@@ -61,6 +69,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        let shouldPresentOnboarding = OnboardingLaunchPolicy.shouldPresent(
+            loadedConfigurationFromDisk: configManager.loadedFromDisk,
+            hasCompletedOnboarding: UserDefaults.standard.bool(
+                forKey: Self.onboardingCompletionKey
+            )
+        )
         itemDragCoordinator.onSessionBegan = { [weak self] _ in
             self?.beginDockItemDragInteraction()
         }
@@ -81,12 +95,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
+        configureRecentApplicationTracking()
+        configureProfileAutomation()
+
+        let recoverySource = configManager.loadSource
+        if case .backup = recoverySource {
+            configManager.saveImmediately()
+        }
+
         restoreDocks()
         if !configManager.loadedFromDisk, configManager.config.docks.isEmpty {
             createInitialSeededDock()
         }
         rebuildMenu()
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateConnectedDisplayAutomation()
+        }
         NSApp.activate(ignoringOtherApps: true)
+        if shouldPresentOnboarding {
+            DispatchQueue.main.async { [weak self] in
+                self?.presentOnboarding()
+            }
+        } else if case let .backup(generation) = recoverySource {
+            DispatchQueue.main.async { [weak self] in
+                self?.showAutomaticRecoveryNotice(generation: generation)
+            }
+        }
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -97,6 +131,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         closeFolderStack()
         saveAllPositions()
         configManager.saveImmediately()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    func applicationDidBecomeActive(_: Notification) {
+        windowPreviewController.reconcilePermissions()
+        preferencesStore?.refreshPermissions()
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
@@ -109,26 +149,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         screenParametersWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.reconcileDisplayTopology()
+            self?.evaluateConnectedDisplayAutomation()
         }
         screenParametersWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
     @objc func rebuildMenu() {
+        let performanceInterval = PerformanceTrace.begin("MenuRebuild")
+        defer { PerformanceTrace.end(performanceInterval) }
         let menu = NSMenu()
 
         let profileMenu = NSMenu()
-        for (index, profile) in configManager.config.profiles.enumerated() {
+        for profile in configManager.config.profiles {
             let profileItem = NSMenuItem(
                 title: profile.name,
                 action: #selector(switchProfile(_:)),
-                keyEquivalent: index < 9 ? "\(index + 1)" : ""
+                keyEquivalent: ""
             )
             profileItem.representedObject = profile.id
             profileItem.state = profile.id == configManager.config.activeProfileID ? .on : .off
-            if index < 9 {
-                profileItem.keyEquivalentModifierMask = [.control, .option]
-            }
+            configureMenuShortcut(
+                profileItem,
+                shortcut: configManager.config.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            )
             profileMenu.addItem(profileItem)
         }
         profileMenu.addItem(.separator())
@@ -161,18 +207,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let toggleProfileItem = NSMenuItem(
             title: dockPanels.isEmpty ? "Show Active Profile" : "Hide Active Profile",
             action: #selector(toggleActiveProfileDocks),
-            keyEquivalent: " "
+            keyEquivalent: ""
         )
-        toggleProfileItem.keyEquivalentModifierMask = [.control, .option]
+        configureMenuShortcut(
+            toggleProfileItem,
+            shortcut: configManager.config.globalShortcuts.showHideDocks
+        )
         toggleProfileItem.isEnabled = !configManager.config.docks.isEmpty
         menu.addItem(toggleProfileItem)
 
         let quickLaunchItem = NSMenuItem(
             title: "Quick Launch…",
             action: #selector(toggleQuickLaunch),
-            keyEquivalent: " "
+            keyEquivalent: ""
         )
-        quickLaunchItem.keyEquivalentModifierMask = [.command, .shift]
+        configureMenuShortcut(
+            quickLaunchItem,
+            shortcut: configManager.config.globalShortcuts.quickLaunch
+        )
         quickLaunchItem.isEnabled = !configManager.config.docks.isEmpty
         quickLaunchItem.target = self
         menu.addItem(quickLaunchItem)
@@ -267,6 +319,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(removeItem)
 
         menu.addItem(.separator())
+        let welcomeItem = NSMenuItem(
+            title: "Welcome to FreeDock…",
+            action: #selector(showOnboarding),
+            keyEquivalent: ""
+        )
+        welcomeItem.target = self
+        menu.addItem(welcomeItem)
+        let supportItem = NSMenuItem(
+            title: "Support FreeDock…",
+            action: #selector(openSupportPage),
+            keyEquivalent: ""
+        )
+        supportItem.target = self
+        menu.addItem(supportItem)
         let preferencesItem = NSMenuItem(
             title: "Preferences…",
             action: #selector(showPreferences),
@@ -276,6 +342,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesItem.target = self
         menu.addItem(preferencesItem)
 
+        let undoTitle = actionUndoManager.canUndo
+            ? "Undo \(actionUndoManager.undoActionName)"
+            : "Undo"
+        let undoItem = NSMenuItem(
+            title: undoTitle,
+            action: #selector(performUndo),
+            keyEquivalent: "z"
+        )
+        undoItem.keyEquivalentModifierMask = [.command]
+        undoItem.isEnabled = actionUndoManager.canUndo
+        undoItem.target = self
+        menu.addItem(undoItem)
+
         menu.addItem(.separator())
         let lockItem = NSMenuItem(title: "Lock Dock Positions", action: #selector(toggleLockPositions), keyEquivalent: "l")
         lockItem.state = _lockPositions ? .on : .off
@@ -283,8 +362,139 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit FreeDock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
-        configureGlobalShortcuts()
+        configureGlobalShortcutsIfNeeded()
         refreshPreferencesSnapshot()
+    }
+
+    private func configureMenuShortcut(
+        _ item: NSMenuItem,
+        shortcut: GlobalShortcut?
+    ) {
+        guard let shortcut,
+              let keyName = GlobalShortcut.keyName(for: shortcut.keyCode),
+              let keyEquivalent = menuKeyEquivalent(for: keyName)
+        else { return }
+
+        item.keyEquivalent = keyEquivalent
+        var modifiers: NSEvent.ModifierFlags = []
+        if shortcut.modifiers & UInt32(cmdKey) != 0 {
+            modifiers.insert(.command)
+        }
+        if shortcut.modifiers & UInt32(optionKey) != 0 {
+            modifiers.insert(.option)
+        }
+        if shortcut.modifiers & UInt32(controlKey) != 0 {
+            modifiers.insert(.control)
+        }
+        if shortcut.modifiers & UInt32(shiftKey) != 0 {
+            modifiers.insert(.shift)
+        }
+        item.keyEquivalentModifierMask = modifiers
+    }
+
+    private func menuKeyEquivalent(for keyName: String) -> String? {
+        if keyName.count == 1 {
+            return keyName.lowercased()
+        }
+        if keyName.hasPrefix("F"),
+           let number = Int(keyName.dropFirst()),
+           (1...12).contains(number),
+           let scalar = UnicodeScalar(0xF704 + number - 1)
+        {
+            return String(Character(scalar))
+        }
+
+        let specialKeys: [String: UInt32] = [
+            "Space": 0x20,
+            "Return": 0x0D,
+            "Tab": 0x09,
+            "Delete": 0x08,
+            "Forward Delete": 0xF728,
+            "Escape": 0x1B,
+            "←": 0xF702,
+            "→": 0xF703,
+            "↑": 0xF700,
+            "↓": 0xF701,
+            "Home": 0xF729,
+            "End": 0xF72B,
+            "Page Up": 0xF72C,
+            "Page Down": 0xF72D,
+        ]
+        guard let value = specialKeys[keyName],
+              let scalar = UnicodeScalar(value)
+        else { return nil }
+        return String(Character(scalar))
+    }
+
+    @objc private func showOnboarding() {
+        presentOnboarding()
+    }
+
+    @objc private func openSupportPage() {
+        guard let url = URL(
+            string: "https://www.buymeacoffee.com/thksalot"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func performUndo() {
+        actionUndoManager.undo()
+        rebuildMenu()
+    }
+
+    private func registerUndo(
+        _ actionName: String,
+        action: @escaping (AppDelegate) -> Void
+    ) {
+        actionUndoManager.registerUndo(withTarget: self) { target in
+            action(target)
+        }
+        actionUndoManager.setActionName(actionName)
+    }
+
+    private func presentOnboarding() {
+        if let onboardingWindowController {
+            onboardingWindowController.show()
+            return
+        }
+        let controller = OnboardingWindowController(
+            requestAccessibility: { [weak self] in
+                guard let self else { return false }
+                return self.windowPreviewController.requestAccessibilityAccess()
+                    || self.windowPreviewController.isAccessibilityTrusted
+            },
+            requestScreenRecording: { [weak self] in
+                guard let self else { return false }
+                return self.windowPreviewController.requestScreenCaptureAccess()
+                    || self.windowPreviewController.isScreenCaptureTrusted
+            },
+            onFinish: { [weak self] openPreferences in
+                self?.finishOnboarding(openPreferences: openPreferences)
+            },
+            onClosed: { [weak self] in
+                self?.markOnboardingCompleted()
+                self?.onboardingWindowController = nil
+            }
+        )
+        onboardingWindowController = controller
+        controller.show()
+    }
+
+    private func finishOnboarding(openPreferences: Bool) {
+        markOnboardingCompleted()
+        let controller = onboardingWindowController
+        onboardingWindowController = nil
+        controller?.close()
+        if openPreferences {
+            showPreferences()
+        }
+    }
+
+    private func markOnboardingCompleted() {
+        UserDefaults.standard.set(
+            true,
+            forKey: Self.onboardingCompletionKey
+        )
     }
 
     @objc private func showPreferences() {
@@ -293,6 +503,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 profiles: configManager.config.profiles,
                 activeProfileID: configManager.config.activeProfileID,
                 displays: DockDisplayManager.connectedDisplays,
+                globalShortcuts: configManager.config.globalShortcuts,
+                themes: configManager.config.themes,
                 onChange: { [weak self] dockID, change in
                     self?.applyDockPreference(change, to: dockID)
                 },
@@ -316,6 +528,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 onOpenPermissionSettings: {
                     [weak self] permission in
                     self?.openPermissionSettings(permission)
+                },
+                launchAtLoginSnapshot: {
+                    LaunchAtLoginController.state
+                },
+                onLaunchAtLoginChange: { enabled in
+                    LaunchAtLoginController.setEnabled(enabled)
+                },
+                onOpenLoginItemsSettings: {
+                    LaunchAtLoginController.openSystemSettings()
+                },
+                onGlobalShortcutsChange: { [weak self] settings in
+                    self?.applyGlobalShortcuts(settings)
                 }
             )
             preferencesStore = store
@@ -330,9 +554,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesStore?.reload(
             profiles: configManager.config.profiles,
             activeProfileID: configManager.config.activeProfileID,
-            displays: DockDisplayManager.connectedDisplays
+            displays: DockDisplayManager.connectedDisplays,
+            globalShortcuts: configManager.config.globalShortcuts,
+            themes: configManager.config.themes
         )
         preferencesStore?.refreshPermissions()
+        preferencesStore?.refreshLaunchAtLogin()
     }
 
     private func handlePermissionAction(
@@ -397,8 +624,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleDockManagementAction(_ action: DockManagementAction) {
         switch action {
+        case .undo:
+            performUndo()
+        case .exportConfiguration:
+            exportConfiguration()
+        case .importConfiguration:
+            importConfiguration()
+        case .restoreLastWorkingConfiguration:
+            confirmAndRestoreLastWorkingConfiguration()
+        case .exportActiveProfile:
+            exportActiveProfile()
+        case .importProfile:
+            importProfile()
         case let .activateProfile(profileID):
             activateProfile(profileID)
+        case let .addProfileApplicationAutomation(profileID):
+            chooseProfileAutomationApplication(for: profileID)
+        case let .addProfileDisplayAutomation(profileID, displayID):
+            addProfileDisplayAutomation(displayID, to: profileID)
+        case let .setProfileAutomationEnabled(profileID, ruleID, enabled):
+            setProfileAutomationEnabled(
+                enabled,
+                profileID: profileID,
+                ruleID: ruleID
+            )
+        case let .deleteProfileAutomation(profileID, ruleID):
+            deleteProfileAutomation(profileID: profileID, ruleID: ruleID)
         case .createProfile:
             createProfile()
         case .renameActiveProfile:
@@ -419,6 +670,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             chooseDockItems(for: dockID)
         case let .addSmartStack(dockID, source):
             addSmartStack(source, to: dockID)
+        case let .addTrash(dockID):
+            addTrash(to: dockID)
         case .clearRecentFiles:
             confirmAndClearRecentFiles()
         case let .importSystemDockApps(dockID):
@@ -427,10 +680,289 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             confirmAndResetDockSettings(dockID)
         case let .copyDockSettingsToAll(dockID):
             confirmAndCopyDockSettingsToAll(dockID)
+        case let .saveDockTheme(dockID):
+            promptToSaveDockTheme(from: dockID)
+        case let .applyDockTheme(themeID, dockID):
+            applyDockTheme(themeID, to: dockID)
+        case let .deleteDockTheme(themeID):
+            confirmAndDeleteDockTheme(themeID)
         }
 
         DispatchQueue.main.async { [weak self] in
             self?.preferencesWindowController?.show()
+        }
+    }
+
+    private func exportConfiguration() {
+        saveAllPositions()
+
+        let panel = NSSavePanel()
+        panel.title = "Export FreeDock Configuration"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = "FreeDock Configuration.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try ConfigFileCodec.encode(configManager.config)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Export Configuration",
+                error: error
+            )
+        }
+    }
+
+    private func importConfiguration() {
+        let panel = NSOpenPanel()
+        panel.title = "Import FreeDock Configuration"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let imported: AppConfig
+        do {
+            imported = try ConfigFileCodec.decode(Data(contentsOf: url))
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Import Configuration",
+                error: error
+            )
+            return
+        }
+
+        let profileCount = imported.profiles.count
+        let dockCount = imported.profiles.reduce(0) { $0 + $1.docks.count }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Replace the current FreeDock configuration?"
+        alert.informativeText = "This file contains \(profileCount) profile\(profileCount == 1 ? "" : "s") and \(dockCount) dock\(dockCount == 1 ? "" : "s"). Your current configuration will be kept in freedock.json.bak."
+        alert.addButton(withTitle: "Cancel")
+        let importButton = alert.addButton(withTitle: "Import")
+        importButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        saveAllPositions()
+        configManager.saveImmediately()
+        closeAllDockPanels()
+        configManager.config = imported
+        configureRecentApplicationTracking()
+        configManager.saveImmediately()
+        restoreDocks()
+        rebuildMenu()
+    }
+
+    private func confirmAndRestoreLastWorkingConfiguration() {
+        guard configManager.hasRecoverableBackup else {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.alertStyle = .informational
+            alert.messageText = "No Recovery Backup Available"
+            alert.informativeText = "FreeDock creates recovery history after configuration changes. There is not a valid earlier version to restore yet."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Restore the last working configuration?"
+        alert.informativeText = "Profiles, docks, and settings will return to the newest valid automatic backup."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Restore")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        saveAllPositions()
+        closeAllDockPanels()
+        guard configManager.restoreLatestBackup() else {
+            restoreDocks()
+            return
+        }
+        configureRecentApplicationTracking()
+        configureProfileAutomation()
+        restoreDocks()
+        rebuildMenu()
+    }
+
+    private func showAutomaticRecoveryNotice(generation: Int) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .informational
+        alert.messageText = "FreeDock Recovered Your Configuration"
+        let version = generation == 0
+            ? "the newest automatic backup"
+            : "an earlier automatic backup"
+        alert.informativeText = "The main configuration file could not be read, so FreeDock restored \(version). Your docks and profiles are safe, and the damaged file has been repaired."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func exportActiveProfile() {
+        saveAllPositions()
+        guard let profile = configManager.config.profiles.first(where: {
+            $0.id == configManager.config.activeProfileID
+        }) else { return }
+
+        let panel = NSSavePanel()
+        panel.title = "Export FreeDock Profile"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = "\(profile.name) FreeDock Profile.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let archive = DockProfileArchive(
+                profile: profile,
+                shortcut: configManager.config.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            )
+            try ProfileFileCodec.encode(archive).write(
+                to: url,
+                options: .atomic
+            )
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Export Profile",
+                error: error
+            )
+        }
+    }
+
+    private func importProfile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import FreeDock Profile"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let archive: DockProfileArchive
+        do {
+            archive = try ProfileFileCodec.decode(Data(contentsOf: url))
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Import Profile",
+                error: error
+            )
+            return
+        }
+
+        let name = uniqueImportedProfileName(archive.profile.name)
+        let imported = archive.materializedProfile(named: name)
+        saveAllPositions()
+        closeAllDockPanels()
+        configManager.config.profiles.append(imported)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
+        if let shortcut = archive.shortcut {
+            var candidate = configManager.config.globalShortcuts
+            candidate.setProfileShortcut(shortcut, for: imported.id)
+            if candidate.validationError() == nil {
+                configManager.config.globalShortcuts = candidate
+            }
+        }
+        configManager.config.activeProfileID = imported.id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func uniqueImportedProfileName(_ requestedName: String) -> String {
+        let trimmed = requestedName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let base = trimmed.isEmpty ? "Imported Profile" : trimmed
+        let existing = Set(configManager.config.profiles.map {
+            $0.name.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+        })
+        if !existing.contains(base.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )) {
+            return base
+        }
+        var number = 2
+        while existing.contains("\(base) \(number)".folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )) {
+            number += 1
+        }
+        return "\(base) \(number)"
+    }
+
+    private func showConfigurationFileError(title: String, error: Error) {
+        let alert = NSAlert(error: error)
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
+    }
+
+    private func confirmAndEmptyTrash() {
+        guard !TrashMonitor.shared.isEmpty else { return }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Empty Trash?"
+        alert.informativeText = "Items in Trash will be permanently deleted. This action cannot be undone."
+        alert.addButton(withTitle: "Cancel")
+        let emptyButton = alert.addButton(withTitle: "Empty Trash")
+        emptyButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        Task { @MainActor in
+            let messages = await Task.detached(priority: .utility) {
+                TrashController.emptyTrash().map(\.localizedDescription)
+            }.value
+            TrashMonitor.shared.refresh()
+            guard let first = messages.first else { return }
+            showTrashError(
+                title: messages.count == 1
+                    ? "An Item Couldn’t Be Deleted"
+                    : "Some Items Couldn’t Be Deleted",
+                message: first
+            )
+        }
+    }
+
+    private func showTrashError(title: String, error: Error) {
+        showTrashError(title: title, message: error.localizedDescription)
+    }
+
+    private func showTrashError(title: String, message: String) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func configureRecentApplicationTracking() {
+        RunningAppMonitor.shared.configureRecentApplications(
+            configManager.config.recentApplications
+        ) { [weak self] records in
+            guard let self else { return }
+            self.configManager.config.recentApplications = records
+            self.configManager.save()
         }
     }
 
@@ -884,6 +1416,141 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    private func configureProfileAutomation() {
+        guard !observesProfileAutomation else { return }
+        observesProfileAutomation = true
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(applicationDidActivateForProfileAutomation(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationDidActivateForProfileAutomation(
+        _ notification: Notification
+    ) {
+        guard let application = notification.userInfo?[
+            NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication,
+              application.processIdentifier
+                != ProcessInfo.processInfo.processIdentifier,
+              let bundleIdentifier = application.bundleIdentifier,
+              let profileID = ProfileAutomationPlanner.matchingProfileID(
+                triggerKind: .application,
+                value: bundleIdentifier,
+                profiles: configManager.config.profiles
+              )
+        else { return }
+        activateProfile(profileID)
+    }
+
+    private func evaluateConnectedDisplayAutomation() {
+        let displayIDs = DockDisplayManager.connectedDisplays.map {
+            $0.id.uuidString
+        }
+        for displayID in displayIDs {
+            if let profileID = ProfileAutomationPlanner.matchingProfileID(
+                triggerKind: .display,
+                value: displayID,
+                profiles: configManager.config.profiles
+            ) {
+                activateProfile(profileID)
+                return
+            }
+        }
+    }
+
+    private func chooseProfileAutomationApplication(for profileID: UUID) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Application"
+        panel.prompt = "Use Application"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let bundle = Bundle(url: url),
+              let bundleIdentifier = bundle.bundleIdentifier
+        else { return }
+
+        addProfileAutomationRule(
+            ProfileAutomationRule(
+                triggerKind: .application,
+                value: bundleIdentifier,
+                label: bundle.object(forInfoDictionaryKey: "CFBundleDisplayName")
+                    as? String
+                    ?? bundle.object(forInfoDictionaryKey: "CFBundleName")
+                    as? String
+                    ?? url.deletingPathExtension().lastPathComponent
+            ),
+            to: profileID
+        )
+    }
+
+    private func addProfileDisplayAutomation(
+        _ displayID: UUID,
+        to profileID: UUID
+    ) {
+        guard let display = DockDisplayManager.connectedDisplays.first(where: {
+            $0.id == displayID
+        }) else { return }
+        addProfileAutomationRule(
+            ProfileAutomationRule(
+                triggerKind: .display,
+                value: display.id.uuidString,
+                label: display.label
+            ),
+            to: profileID
+        )
+    }
+
+    private func addProfileAutomationRule(
+        _ rule: ProfileAutomationRule,
+        to profileID: UUID
+    ) {
+        guard let index = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), !configManager.config.profiles[index].automationRules.contains(where: {
+            $0.triggerKind == rule.triggerKind
+                && $0.value.caseInsensitiveCompare(rule.value) == .orderedSame
+        }) else { return }
+        configManager.config.profiles[index].automationRules.append(rule)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func setProfileAutomationEnabled(
+        _ enabled: Bool,
+        profileID: UUID,
+        ruleID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), let ruleIndex = configManager.config.profiles[profileIndex]
+            .automationRules.firstIndex(where: { $0.id == ruleID })
+        else { return }
+        configManager.config.profiles[profileIndex]
+            .automationRules[ruleIndex].isEnabled = enabled
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func deleteProfileAutomation(
+        profileID: UUID,
+        ruleID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }) else { return }
+        configManager.config.profiles[profileIndex].automationRules.removeAll {
+            $0.id == ruleID
+        }
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
     @objc private func toggleActiveProfileDocks() {
         if dockPanels.isEmpty {
             restoreDocks()
@@ -895,15 +1562,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    private func configureGlobalShortcuts() {
+    @discardableResult
+    private func configureGlobalShortcutsIfNeeded() -> Bool {
+        let settings = configManager.config.globalShortcuts
+        if registeredShortcutSettings == settings {
+            return true
+        }
+
         shortcutManager.reset()
-        shortcutManager.register(id: 1, keyCode: GlobalShortcutManager.showHideKeyCode) { [weak self] in
+        registeredShortcutSettings = nil
+        let showHide = settings.showHideDocks
+        let didRegisterShowHide = shortcutManager.register(
+            id: 1,
+            keyCode: showHide.keyCode,
+            modifiers: showHide.modifiers
+        ) { [weak self] in
             self?.toggleActiveProfileDocks()
         }
+        let quickLaunch = settings.quickLaunch
         let didRegisterQuickLaunch = shortcutManager.register(
             id: 100,
-            keyCode: GlobalShortcutManager.quickLaunchKeyCode,
-            modifiers: GlobalShortcutManager.quickLaunchModifiers
+            keyCode: quickLaunch.keyCode,
+            modifiers: quickLaunch.modifiers
         ) { [weak self] in
             self?.toggleQuickLaunch()
         }
@@ -911,14 +1591,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("FreeDock could not register the global Quick Launch shortcut Command-Shift-Space.")
         }
 
-        for (index, profile) in configManager.config.profiles.prefix(9).enumerated() {
-            shortcutManager.register(
-                id: UInt32(index + 2),
-                keyCode: GlobalShortcutManager.profileKeyCodes[index]
+        var didRegisterProfiles = true
+        for (index, profile) in configManager.config.profiles.enumerated() {
+            guard let shortcut = settings.shortcut(forProfile: profile.id) else {
+                continue
+            }
+            let registered = shortcutManager.register(
+                id: UInt32(index + 1_000),
+                keyCode: shortcut.keyCode,
+                modifiers: shortcut.modifiers
             ) { [weak self] in
                 self?.activateProfile(profile.id)
             }
+            didRegisterProfiles = didRegisterProfiles && registered
         }
+        let didRegister = didRegisterShowHide && didRegisterQuickLaunch
+            && didRegisterProfiles
+        if didRegister {
+            registeredShortcutSettings = settings
+        }
+        return didRegister
+    }
+
+    private func applyGlobalShortcuts(
+        _ settings: GlobalShortcutSettings
+    ) -> String? {
+        var settings = settings
+        settings.reconcileProfiles(configManager.config.profiles)
+        if let error = settings.validationError() {
+            return error
+        }
+
+        let previous = configManager.config.globalShortcuts
+        configManager.config.globalShortcuts = settings
+        guard configureGlobalShortcutsIfNeeded() else {
+            configManager.config.globalShortcuts = previous
+            configureGlobalShortcutsIfNeeded()
+            return "macOS could not register that shortcut. It may already be used by another app."
+        }
+
+        configManager.save()
+        rebuildMenu()
+        return nil
     }
 
     @objc private func toggleQuickLaunch() {
@@ -1092,6 +1806,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let profile = DockProfile(name: name, docks: [starterDock])
         configManager.config.profiles.append(profile)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
         configManager.config.activeProfileID = profile.id
         restoreDocks()
         configManager.save()
@@ -1134,11 +1851,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deleteButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let previousActiveProfileID = configManager.config.activeProfileID
+        registerUndo("Delete Profile") { target in
+            target.restoreDeletedProfile(
+                profile,
+                at: index,
+                activeProfileID: previousActiveProfileID
+            )
+        }
         saveAllPositions()
         closeAllDockPanels()
         configManager.config.profiles.remove(at: index)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
         let nextIndex = min(index, configManager.config.profiles.count - 1)
         configManager.config.activeProfileID = configManager.config.profiles[nextIndex].id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func restoreDeletedProfile(
+        _ profile: DockProfile,
+        at requestedIndex: Int,
+        activeProfileID: UUID
+    ) {
+        guard !configManager.config.profiles.contains(where: {
+            $0.id == profile.id
+        }) else { return }
+        saveAllPositions()
+        closeAllDockPanels()
+        let index = min(requestedIndex, configManager.config.profiles.count)
+        configManager.config.profiles.insert(profile, at: index)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
+        configManager.config.activeProfileID = activeProfileID
         restoreDocks()
         configManager.save()
         rebuildMenu()
@@ -1335,7 +2084,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func confirmAndDeleteDock(_ id: UUID) {
-        guard let dock = configManager.config.docks.first(where: { $0.id == id }) else { return }
+        guard let index = configManager.config.docks.firstIndex(where: {
+            $0.id == id
+        }) else { return }
+        let dock = configManager.config.docks[index]
 
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
@@ -1347,7 +2099,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deleteButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let profileID = configManager.config.activeProfileID
+        registerUndo("Delete Dock") { target in
+            target.restoreDeletedDock(
+                dock,
+                at: index,
+                in: profileID
+            )
+        }
         performDeleteDock(id)
+    }
+
+    private func restoreDeletedDock(
+        _ dock: DockConfig,
+        at requestedIndex: Int,
+        in profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), !configManager.config.profiles[profileIndex].docks.contains(where: {
+            $0.id == dock.id
+        }) else { return }
+        let index = min(requestedIndex, configManager.config.profiles[profileIndex].docks.count)
+        configManager.config.profiles[profileIndex].docks.insert(dock, at: index)
+        if profileID == configManager.config.activeProfileID {
+            showDock(dock)
+        }
+        configManager.save()
+        rebuildMenu()
     }
 
     private func performDeleteDock(_ id: UUID) {
@@ -1590,6 +2369,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         replaceDockItems(plan.items, for: dockID)
     }
 
+    private func addTrash(to dockID: UUID) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) else { return }
+        let plan = DockItemPlanner.planAddingTrash(to: dock.items)
+        guard plan.addedCount > 0 else {
+            NSSound.beep()
+            return
+        }
+        replaceDockItems(plan.items, for: dockID)
+    }
+
     private func replaceDockItems(
         _ items: [DockItem],
         for dockID: UUID,
@@ -1603,6 +2394,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let previous = configManager.config.docks[index]
         guard previous.items != items else { return }
+        let removedItemIDs = Set(previous.items.map(\.id))
+            .subtracting(items.map(\.id))
+        if !removedItemIDs.isEmpty {
+            let profileID = configManager.config.activeProfileID
+            registerUndo("Remove Dock Item") { target in
+                target.restoreDockItems(
+                    previous.items,
+                    dockID: dockID,
+                    profileID: profileID
+                )
+            }
+        }
         var updated = previous
         updated.items = items
         configManager.config.docks[index] = updated
@@ -1620,6 +2423,112 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         reconcileDockRuntime(from: previous, to: updated)
         configManager.save()
         refreshPreferencesSnapshot()
+        if !removedItemIDs.isEmpty {
+            rebuildMenu()
+        }
+    }
+
+    private func restoreDockItems(
+        _ items: [DockItem],
+        dockID: UUID,
+        profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), let dockIndex = configManager.config.profiles[profileIndex]
+            .docks.firstIndex(where: { $0.id == dockID })
+        else { return }
+        let previous = configManager.config.profiles[profileIndex].docks[dockIndex]
+        var restored = previous
+        restored.items = items
+        configManager.config.profiles[profileIndex].docks[dockIndex] = restored
+        if profileID == configManager.config.activeProfileID {
+            preferencesStore?.replaceDock(restored)
+            reconcileDockRuntime(from: previous, to: restored)
+        }
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func promptToRenameDockItem(
+        _ item: DockItem,
+        in dockID: UUID
+    ) {
+        guard item.kind != .separator, item.kind != .trash else { return }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = "Rename Dock Item"
+        alert.informativeText = "Enter a custom label, or leave it empty to use the original name."
+        let field = NSTextField(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 24)
+        )
+        field.stringValue = DockItemPresentation.resolve(item).displayName
+        field.selectText(nil)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        var updatedItems = configManager.config.docks.first(where: {
+            $0.id == dockID
+        })?.items ?? []
+        guard let index = updatedItems.firstIndex(where: {
+            $0.id == item.id
+        }) else { return }
+        let label = field.stringValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        updatedItems[index].label = label.isEmpty ? nil : label
+        replaceDockItems(updatedItems, for: dockID)
+    }
+
+    private func chooseCustomIcon(
+        for item: DockItem,
+        in dockID: UUID
+    ) {
+        guard item.kind != .separator, item.kind != .trash else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Icon for \(DockItemPresentation.resolve(item).displayName)"
+        panel.prompt = "Choose Icon"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let iconData = DockItemIconEncoder.encodeImage(at: url)
+        else {
+            if panel.url != nil {
+                showCustomIconError()
+            }
+            return
+        }
+        updateCustomIcon(iconData, for: item.id, in: dockID)
+    }
+
+    private func updateCustomIcon(
+        _ data: Data?,
+        for itemID: DockItem.ID,
+        in dockID: UUID
+    ) {
+        var updatedItems = configManager.config.docks.first(where: {
+            $0.id == dockID
+        })?.items ?? []
+        guard let index = updatedItems.firstIndex(where: {
+            $0.id == itemID
+        }) else { return }
+        updatedItems[index].customIconData = data
+        replaceDockItems(updatedItems, for: dockID)
+    }
+
+    private func showCustomIconError() {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Icon Couldn’t Be Used"
+        alert.informativeText = "Choose a valid image smaller than 10 MB. FreeDock stores a portable optimized copy in its configuration."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func transferDockItem(
@@ -1638,6 +2547,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         var docks = configManager.config.docks
+        let originalDocks = docks
         guard let sourceIndex = docks.firstIndex(where: {
             $0.id == session.sourceDockID
         }),
@@ -1667,7 +2577,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .unchanged:
             itemDragCoordinator.finish(sessionID: session.id)
             return true
-        case .moved, .copied:
+        case .moved, .copied, .removed:
             break
         }
 
@@ -1700,6 +2610,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        if case .removed = plan.outcome {
+            let profileID = configManager.config.activeProfileID
+            registerUndo("Remove Dock Item") { target in
+                target.restoreProfileDocks(
+                    originalDocks,
+                    profileID: profileID
+                )
+            }
+        }
+
         // Make both sides visible atomically before panels or Preferences
         // reconcile the transfer.
         configManager.config.docks = docks
@@ -1723,7 +2643,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPreferencesSnapshot()
         itemDragCoordinator.publishContentChange()
         itemDragCoordinator.finish(sessionID: session.id)
+        if case .removed = plan.outcome {
+            rebuildMenu()
+        }
         return true
+    }
+
+    private func restoreProfileDocks(
+        _ docks: [DockConfig],
+        profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }) else { return }
+        configManager.config.profiles[profileIndex].docks = docks
+        if profileID == configManager.config.activeProfileID {
+            closeAllDockPanels()
+            restoreDocks()
+        }
+        configManager.save()
+        rebuildMenu()
     }
 
     private func activateDockItem(
@@ -1734,6 +2673,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard item.kind != .separator else { return }
 
         windowPreviewController.close(resetNativeController: false)
+        if item.kind == .trash {
+            closeFolderStack()
+            guard let trashURL = TrashController.trashURL,
+                  NSWorkspace.shared.open(trashURL)
+            else { NSSound.beep(); return }
+            return
+        }
         if item.kind == .folder {
             if let controller = folderStackController,
                controller.dockID == panel.dockID,
@@ -2125,9 +3071,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clearButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let recentFiles = configManager.config.recentFiles
+        registerUndo("Clear Recent Files") { target in
+            target.configManager.config.recentFiles = recentFiles
+            target.configManager.save()
+            target.refreshPreferencesSnapshot()
+        }
         closeFolderStack()
         configManager.config.recentFiles.removeAll()
         configManager.save()
+        rebuildMenu()
     }
 
     private func confirmAndImportSystemDockApps(into id: UUID) {
@@ -2256,6 +3209,109 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         applyDockSettings(source.settings, to: Set(targetIDs))
     }
 
+    private func promptToSaveDockTheme(from dockID: UUID) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) else { return }
+        var proposedValue = "\(dock.name) Style"
+
+        while true {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = "Save Appearance Theme"
+            alert.informativeText = "Save this dock’s style, opacity, blur, corners, and shadow for reuse on any dock or profile."
+            let field = NSTextField(
+                frame: NSRect(x: 0, y: 0, width: 240, height: 24)
+            )
+            field.stringValue = proposedValue
+            field.selectText(nil)
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+            proposedValue = field.stringValue.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            if proposedValue.isEmpty {
+                showThemeError("Theme names cannot be empty.")
+                continue
+            }
+            let duplicate = configManager.config.themes.contains {
+                $0.name.compare(
+                    proposedValue,
+                    options: [.caseInsensitive, .diacriticInsensitive]
+                ) == .orderedSame
+            }
+            if duplicate {
+                showThemeError("A theme named “\(proposedValue)” already exists.")
+                continue
+            }
+
+            configManager.config.themes.append(
+                DockTheme(name: proposedValue, dock: dock)
+            )
+            configManager.save()
+            refreshPreferencesSnapshot()
+            return
+        }
+    }
+
+    private func applyDockTheme(_ themeID: UUID, to dockID: UUID) {
+        guard let theme = configManager.config.themes.first(where: {
+            $0.id == themeID
+        }),
+        let index = configManager.config.docks.firstIndex(where: {
+            $0.id == dockID
+        }) else { return }
+
+        let previous = configManager.config.docks[index]
+        var updated = previous
+        theme.apply(to: &updated)
+        guard updated != previous else { return }
+        configManager.config.docks[index] = updated
+        preferencesStore?.replaceDock(updated)
+        reconcileDockRuntime(from: previous, to: updated)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func confirmAndDeleteDockTheme(_ themeID: UUID) {
+        guard let index = configManager.config.themes.firstIndex(where: {
+            $0.id == themeID
+        }) else { return }
+        let theme = configManager.config.themes[index]
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(theme.name)”?"
+        alert.informativeText = "Docks already using this appearance will not change."
+        alert.addButton(withTitle: "Cancel")
+        let deleteButton = alert.addButton(withTitle: "Delete")
+        deleteButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        registerUndo("Delete Theme") { target in
+            let insertionIndex = min(index, target.configManager.config.themes.count)
+            target.configManager.config.themes.insert(theme, at: insertionIndex)
+            target.configManager.save()
+            target.refreshPreferencesSnapshot()
+        }
+        configManager.config.themes.remove(at: index)
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func showThemeError(_ message: String) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Theme Not Saved"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func applyDockSettings(_ settings: DockSettings, to targetIDs: Set<UUID>) {
         var docks = configManager.config.docks
         var transitions: [(previous: DockConfig, updated: DockConfig)] = []
@@ -2305,6 +3361,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .orientation, .magnificationEnabled, .magnification,
              .itemSpacing, .appearance, .surfaceOpacity, .blurStyle,
              .cornerRadius, .shadowStrength, .showRunningIndicators,
+             .showDynamicApplications, .dynamicApplicationLimit,
              .autoHideDelay:
             break
         }
@@ -2329,6 +3386,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             || previous.magnification != updated.magnification
             || previous.itemSpacing != updated.itemSpacing
             || previous.items != updated.items
+            || previous.showDynamicApplications
+                != updated.showDynamicApplications
+            || previous.dynamicApplicationLimit
+                != updated.dynamicApplicationLimit
         let autoHideChanged = previous.autoHideWhenDocked != updated.autoHideWhenDocked
 
         if geometryChanged {
@@ -2582,6 +3643,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     from: panel
                 )
             },
+            onCanMoveFilesToTrash: { urls in
+                TrashController.canRecycle(urls)
+            },
+            onMoveFilesToTrash: { [weak self] urls in
+                TrashController.recycle(urls) { errorMessage in
+                    guard let errorMessage else { return }
+                    self?.showTrashError(
+                        title: "Some Items Couldn’t Be Moved to Trash",
+                        message: errorMessage
+                    )
+                }
+            },
+            onEmptyTrashRequested: { [weak self] in
+                self?.confirmAndEmptyTrash()
+            },
+            onRenameItemRequested: { [weak self] item in
+                self?.promptToRenameDockItem(item, in: dockID)
+            },
+            onChooseCustomIconRequested: { [weak self] item in
+                self?.chooseCustomIcon(for: item, in: dockID)
+            },
+            onRestoreOriginalIconRequested: { [weak self] item in
+                self?.updateCustomIcon(nil, for: item.id, in: dockID)
+            },
             onApplicationHoverChanged: {
                 [weak self, weak panel] item, sourceRect, hovering in
                 guard let self, let panel else { return }
@@ -2664,6 +3749,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreDocks() {
+        let performanceInterval = PerformanceTrace.begin("DockRestore")
+        defer { PerformanceTrace.end(performanceInterval) }
         for dock in configManager.config.docks {
             showDock(dock)
         }

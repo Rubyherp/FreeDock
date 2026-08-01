@@ -62,6 +62,20 @@ final class DockApplicationWindowController {
         bundleIdentifier: String,
         applicationName: String
     ) async -> DockApplicationWindowQuery {
+        let performanceInterval = PerformanceTrace.begin(
+            "WindowDiscovery"
+        )
+        defer { PerformanceTrace.end(performanceInterval) }
+        return await loadWindowsMeasured(
+            bundleIdentifier: bundleIdentifier,
+            applicationName: applicationName
+        )
+    }
+
+    private func loadWindowsMeasured(
+        bundleIdentifier: String,
+        applicationName: String
+    ) async -> DockApplicationWindowQuery {
         guard isAccessibilityTrusted else {
             clearRetainedState()
             await nativeStore.reset()
@@ -178,6 +192,10 @@ final class DockApplicationWindowController {
         else {
             return nil
         }
+        let performanceInterval = PerformanceTrace.begin(
+            "WindowThumbnail"
+        )
+        defer { PerformanceTrace.end(performanceInterval) }
         return await captureController.thumbnail(
             processIdentifier: capture.processIdentifier,
             for: capture.windowID,

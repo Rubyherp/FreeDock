@@ -69,6 +69,9 @@ enum QuickLaunchSearch {
         if let label = trimmedNonEmpty(item.label) {
             return label
         }
+        if item.kind == .trash {
+            return "Trash"
+        }
         if let smartStackSource = item.smartStackSource {
             return smartStackSource.defaultLabel
         }
@@ -99,7 +102,10 @@ enum QuickLaunchSearch {
         }
 
         let normalizedPath = normalize(item.path)
-        guard item.smartStackSource != nil || !normalizedPath.isEmpty else {
+        guard item.kind == .trash
+                || item.smartStackSource != nil
+                || !normalizedPath.isEmpty
+        else {
             return nil
         }
 

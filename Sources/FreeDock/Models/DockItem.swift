@@ -6,6 +6,7 @@ enum DockItemKind: String, Codable, Equatable, Sendable {
     case document
     case folder
     case separator
+    case trash
 }
 
 enum SmartStackSource: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
@@ -90,6 +91,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
     var kind: DockItemKind
     var folderOptions: FolderStackOptions?
     var smartStackSource: SmartStackSource?
+    var customIconData: Data?
 
     /// Source compatibility for code and configs created before typed dock items.
     var appPath: String {
@@ -108,13 +110,16 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         path: String,
         label: String? = nil,
         folderOptions: FolderStackOptions? = nil,
-        smartStackSource: SmartStackSource? = nil
+        smartStackSource: SmartStackSource? = nil,
+        customIconData: Data? = nil
     ) {
         self.id = id
         self.kind = smartStackSource == nil ? kind : .folder
-        self.path = kind == .separator || smartStackSource != nil ? "" : path
+        self.path = kind == .separator || kind == .trash
+            || smartStackSource != nil ? "" : path
         self.label = label ?? smartStackSource?.defaultLabel
         self.smartStackSource = smartStackSource
+        self.customIconData = customIconData
         self.folderOptions = self.kind == .folder
             ? (
                 folderOptions
@@ -221,6 +226,10 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         DockItem(id: id, kind: .separator, path: "")
     }
 
+    static func trash(id: UUID = UUID()) -> DockItem {
+        DockItem(id: id, kind: .trash, path: "", label: "Trash")
+    }
+
     /// Classifies a file-system URL for pinning without throwing for stale or invalid drops.
     static func pinnedItem(at url: URL) -> DockItem? {
         guard url.isFileURL else { return nil }
@@ -273,12 +282,14 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             path: path,
             label: label,
             folderOptions: folderOptions,
-            smartStackSource: smartStackSource
+            smartStackSource: smartStackSource,
+            customIconData: customIconData
         )
     }
 
     var fileURL: URL? {
         guard kind != .separator,
+              kind != .trash,
               smartStackSource == nil,
               !path.isEmpty
         else {
@@ -308,6 +319,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         case kind
         case folderOptions
         case smartStackSource
+        case customIconData
         case isSeparator
     }
 
@@ -331,10 +343,16 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             (try? container.decode(String.self, forKey: .path))
             ?? (try? container.decode(String.self, forKey: .appPath))
             ?? ""
-        path = kind == .separator || smartStackSource != nil ? "" : decodedPath
+        path = kind == .separator || kind == .trash || smartStackSource != nil
+            ? ""
+            : decodedPath
         label =
             (try? container.decode(String.self, forKey: .label))
             ?? smartStackSource?.defaultLabel
+        customIconData = try? container.decode(
+            Data.self,
+            forKey: .customIconData
+        )
 
         if kind == .folder {
             folderOptions =
@@ -359,6 +377,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             smartStackSource,
             forKey: .smartStackSource
         )
+        try container.encodeIfPresent(customIconData, forKey: .customIconData)
         try container.encode(isSeparator, forKey: .isSeparator)
     }
 }

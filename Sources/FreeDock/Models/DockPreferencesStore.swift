@@ -12,12 +12,24 @@ enum DockPreferenceChange: Equatable {
     case cornerRadius(Double)
     case shadowStrength(Double)
     case showRunningIndicators(Bool)
+    case showDynamicApplications(Bool)
+    case dynamicApplicationLimit(Int)
     case autoHideWhenDocked(Bool)
     case autoHideDelay(Double)
 }
 
 enum DockManagementAction: Equatable {
+    case undo
+    case exportConfiguration
+    case importConfiguration
+    case restoreLastWorkingConfiguration
+    case exportActiveProfile
+    case importProfile
     case activateProfile(UUID)
+    case addProfileApplicationAutomation(UUID)
+    case addProfileDisplayAutomation(profileID: UUID, displayID: UUID)
+    case setProfileAutomationEnabled(profileID: UUID, ruleID: UUID, enabled: Bool)
+    case deleteProfileAutomation(profileID: UUID, ruleID: UUID)
     case createProfile
     case renameActiveProfile
     case deleteActiveProfile
@@ -28,10 +40,14 @@ enum DockManagementAction: Equatable {
     case setDockDisplay(UUID, UUID?)
     case addDockItems(UUID)
     case addSmartStack(UUID, SmartStackSource)
+    case addTrash(UUID)
     case clearRecentFiles
     case importSystemDockApps(UUID)
     case resetDockSettings(UUID)
     case copyDockSettingsToAll(UUID)
+    case saveDockTheme(UUID)
+    case applyDockTheme(themeID: UUID, dockID: UUID)
+    case deleteDockTheme(UUID)
 }
 
 extension DockConfig {
@@ -59,6 +75,10 @@ extension DockConfig {
             shadowStrength = Self.clamp(value, to: Self.shadowStrengthRange)
         case let .showRunningIndicators(value):
             showRunningIndicators = value
+        case let .showDynamicApplications(value):
+            showDynamicApplications = value
+        case let .dynamicApplicationLimit(value):
+            dynamicApplicationLimit = min(max(value, 1), 10)
         case let .autoHideWhenDocked(value):
             autoHideWhenDocked = value
         case let .autoHideDelay(value):
@@ -75,19 +95,31 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var docks: [DockConfig]
     @Published private(set) var displays: [DockDisplayDescriptor]
     @Published private(set) var permissionState: PreferencesPermissionState
+    @Published private(set) var launchAtLoginState: LaunchAtLoginState
+    @Published private(set) var globalShortcuts: GlobalShortcutSettings
+    @Published private(set) var themes: [DockTheme]
+    @Published private(set) var shortcutError: String?
     @Published var selectedDockID: UUID?
+    @Published var settingsSearchText = ""
 
     private let onChange: (UUID, DockPreferenceChange) -> Void
     private let onManagementAction: (DockManagementAction) -> Void
     private let permissionSnapshot: () -> PreferencesPermissionSnapshot
     private let onPermissionAction: (PreferencesPermissionKind) -> Void
     private let onOpenPermissionSettings: (PreferencesPermissionKind) -> Void
+    private let launchAtLoginSnapshot: () -> LaunchAtLoginState
+    private let onLaunchAtLoginChange: (Bool) -> LaunchAtLoginState
+    private let onOpenLoginItemsSettings: () -> Void
+    private let onGlobalShortcutsChange: (GlobalShortcutSettings) -> String?
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID,
         displays: [DockDisplayDescriptor] = [],
         permissionState: PreferencesPermissionState = PreferencesPermissionState(),
+        launchAtLoginState: LaunchAtLoginState = LaunchAtLoginState(),
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        themes: [DockTheme] = [],
         onChange: @escaping (UUID, DockPreferenceChange) -> Void,
         onManagementAction: @escaping (DockManagementAction) -> Void,
         permissionSnapshot: @escaping () -> PreferencesPermissionSnapshot = {
@@ -98,6 +130,19 @@ final class DockPreferencesStore: ObservableObject {
         },
         onOpenPermissionSettings: @escaping (PreferencesPermissionKind) -> Void = {
             _ in
+        },
+        launchAtLoginSnapshot: @escaping () -> LaunchAtLoginState = {
+            LaunchAtLoginState()
+        },
+        onLaunchAtLoginChange: @escaping (Bool) -> LaunchAtLoginState = {
+            enabled in LaunchAtLoginState(status: enabled ? .enabled : .disabled)
+        },
+        onOpenLoginItemsSettings: @escaping () -> Void = {
+        },
+        onGlobalShortcutsChange: @escaping (
+            GlobalShortcutSettings
+        ) -> String? = { _ in
+            nil
         }
     ) {
         self.profiles = profiles
@@ -106,16 +151,29 @@ final class DockPreferencesStore: ObservableObject {
         docks = activeDocks
         self.displays = displays
         self.permissionState = permissionState
+        self.launchAtLoginState = launchAtLoginState
+        self.globalShortcuts = globalShortcuts
+        self.themes = themes
+        shortcutError = nil
         selectedDockID = activeDocks.first?.id
         self.onChange = onChange
         self.onManagementAction = onManagementAction
         self.permissionSnapshot = permissionSnapshot
         self.onPermissionAction = onPermissionAction
         self.onOpenPermissionSettings = onOpenPermissionSettings
+        self.launchAtLoginSnapshot = launchAtLoginSnapshot
+        self.onLaunchAtLoginChange = onLaunchAtLoginChange
+        self.onOpenLoginItemsSettings = onOpenLoginItemsSettings
+        self.onGlobalShortcutsChange = onGlobalShortcutsChange
     }
 
     var activeProfileName: String {
         profiles.first(where: { $0.id == activeProfileID })?.name ?? "Default"
+    }
+
+    var activeProfileAutomationRules: [ProfileAutomationRule] {
+        profiles.first(where: { $0.id == activeProfileID })?
+            .automationRules ?? []
     }
 
     var canDeleteActiveProfile: Bool {
@@ -134,13 +192,21 @@ final class DockPreferencesStore: ObservableObject {
     func reload(
         profiles: [DockProfile],
         activeProfileID: UUID,
-        displays: [DockDisplayDescriptor]? = nil
+        displays: [DockDisplayDescriptor]? = nil,
+        globalShortcuts: GlobalShortcutSettings? = nil,
+        themes: [DockTheme]? = nil
     ) {
         let profileChanged = activeProfileID != self.activeProfileID
         self.profiles = profiles
         self.activeProfileID = activeProfileID
         if let displays {
             self.displays = displays
+        }
+        if let globalShortcuts {
+            self.globalShortcuts = globalShortcuts
+        }
+        if let themes {
+            self.themes = themes
         }
         let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
         docks = activeDocks
@@ -174,6 +240,67 @@ final class DockPreferencesStore: ObservableObject {
             return
         }
         permissionState = updatedState
+    }
+
+    func refreshLaunchAtLogin() {
+        let snapshot = launchAtLoginSnapshot()
+        guard snapshot != launchAtLoginState else { return }
+        launchAtLoginState = snapshot
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        launchAtLoginState = onLaunchAtLoginChange(enabled)
+    }
+
+    func openLoginItemsSettings() {
+        onOpenLoginItemsSettings()
+    }
+
+    func updateGlobalShortcut(
+        _ shortcut: GlobalShortcut,
+        for action: GlobalShortcutAction
+    ) {
+        var candidate = globalShortcuts
+        candidate.set(shortcut, for: action)
+        if let error = candidate.validationError() {
+            shortcutError = error
+            return
+        }
+        if let error = onGlobalShortcutsChange(candidate) {
+            shortcutError = error
+            return
+        }
+        globalShortcuts = candidate
+        shortcutError = nil
+    }
+
+    func updateProfileShortcut(
+        _ shortcut: GlobalShortcut?,
+        for profileID: UUID
+    ) {
+        var candidate = globalShortcuts
+        candidate.setProfileShortcut(shortcut, for: profileID)
+        if let error = candidate.validationError() {
+            shortcutError = error
+            return
+        }
+        if let error = onGlobalShortcutsChange(candidate) {
+            shortcutError = error
+            return
+        }
+        globalShortcuts = candidate
+        shortcutError = nil
+    }
+
+    func resetGlobalShortcuts() {
+        var defaults = GlobalShortcutSettings()
+        defaults.reconcileProfiles(profiles)
+        if let error = onGlobalShortcutsChange(defaults) {
+            shortcutError = error
+            return
+        }
+        globalShortcuts = defaults
+        shortcutError = nil
     }
 
     func performPermissionAction(_ permission: PreferencesPermissionKind) {

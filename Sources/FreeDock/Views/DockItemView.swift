@@ -17,17 +17,38 @@ enum DockApplicationHoverTooltip {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func optionalAccessibilityAction(
+        named name: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isEnabled {
+            accessibilityAction(named: Text(name), action)
+        } else {
+            self
+        }
+    }
+}
+
 struct DockItemView: View {
     let item: DockItem
     let iconSize: Double
     let scale: CGFloat
     let onActivate: (NSRect) -> Void
     let onRemove: () -> Void
+    let isTransientApplication: Bool
+    let onKeepInDock: () -> Void
     let onFolderOptionsChanged: (FolderStackOptions) -> Void
     let hasRecentFiles: () -> Bool
     let onClearRecentFilesRequested: () -> Void
     let onOpenDocumentWithApplication: (URL) -> Void
     let onChooseFilesForApplication: () -> Void
+    let onEmptyTrashRequested: () -> Void
+    let onRenameRequested: () -> Void
+    let onChooseCustomIconRequested: () -> Void
+    let onRestoreOriginalIconRequested: () -> Void
     let onApplicationHoverChanged: (Bool, NSRect) -> Void
     let onShowApplicationWindows: (NSRect) -> Void
     let onEnableWindowThumbnails: () -> Void
@@ -35,7 +56,11 @@ struct DockItemView: View {
     let isWindowPreviewScreenCaptureTrusted: () -> Bool
 
     @ObservedObject private var monitor = RunningAppMonitor.shared
+    @ObservedObject private var trashMonitor = TrashMonitor.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityDifferentiateWithoutColor)
+    private var differentiateWithoutColor
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @State private var presentation: DockItemPresentation?
     @State private var isHovering = false
     @Binding var hoveredItem: UUID?
@@ -144,14 +169,48 @@ struct DockItemView: View {
         .accessibilityAddTraits(
             isQuickLaunchSelected ? .isSelected : []
         )
+        .optionalAccessibilityAction(
+            named: "Show in Finder",
+            isEnabled: item.fileURL != nil,
+            action: showInFinder
+        )
+        .optionalAccessibilityAction(
+            named: "Rename",
+            isEnabled: !isTransientApplication
+                && item.kind != .trash
+                && item.kind != .separator,
+            action: onRenameRequested
+        )
+        .optionalAccessibilityAction(
+            named: "Remove from Dock",
+            isEnabled: !isTransientApplication && item.kind != .trash,
+            action: onRemove
+        )
+        .optionalAccessibilityAction(
+            named: "Keep in Dock",
+            isEnabled: isTransientApplication,
+            action: onKeepInDock
+        )
         .onAppear(perform: refreshPresentation)
         .onChange(of: item) { _ in refreshPresentation() }
+        .onChange(of: trashMonitor.isEmpty) { _ in
+            if item.kind == .trash { refreshPresentation() }
+        }
     }
 
     @ViewBuilder
     private var runningIndicator: some View {
         Circle()
             .fill(indicatorColor.opacity(0.78))
+            .overlay(
+                Circle().stroke(
+                    Color.primary,
+                    lineWidth: differentiateWithoutColor
+                        || colorSchemeContrast == .increased
+                        ? 1.25
+                        : 0
+                )
+            )
             .frame(width: 4, height: 4)
             .shadow(color: .black.opacity(0.16), radius: 1, y: 1)
             .offset(
@@ -194,7 +253,9 @@ struct DockItemView: View {
 
     @ViewBuilder
     private var itemContextMenu: some View {
-        if item.smartStackSource == .recentFiles {
+        if item.kind == .trash {
+            trashMenu
+        } else if item.smartStackSource == .recentFiles {
             recentFilesMenu
         } else if item.smartStackSource == .downloads {
             downloadsMenu
@@ -212,8 +273,35 @@ struct DockItemView: View {
                 .disabled(!resolvedPresentation.isAvailable)
             Button("Copy Path") { copyPath() }
         }
+        if !isTransientApplication, item.kind != .trash {
+            Divider()
+            Button("Rename…", action: onRenameRequested)
+            Button("Choose Custom Icon…", action: onChooseCustomIconRequested)
+            if item.customIconData != nil {
+                Button(
+                    "Restore Original Icon",
+                    action: onRestoreOriginalIconRequested
+                )
+            }
+        }
         Divider()
-        Button("Remove from Dock", role: .destructive) { onRemove() }
+        if isTransientApplication {
+            Button("Keep in Dock", action: onKeepInDock)
+        } else {
+            Button("Remove from Dock", role: .destructive) { onRemove() }
+        }
+    }
+
+    @ViewBuilder
+    private var trashMenu: some View {
+        Button("Open Trash") { activate() }
+        Divider()
+        Button(
+            "Empty Trash…",
+            role: .destructive,
+            action: onEmptyTrashRequested
+        )
+        .disabled(trashMonitor.isEmpty)
     }
 
     @ViewBuilder
@@ -521,11 +609,13 @@ struct DockItemView: View {
         case .folder:
             return "Shows this folder’s contents."
         case .application:
-            return "Opens the application. Use the context menu to show open windows or choose files, or drop compatible files onto it."
+            return "Opens the application. Use the context menu or VoiceOver Actions to show windows, choose files, rename, or remove it."
         case .document:
             return "Opens the document in its default application."
         case .separator:
             return ""
+        case .trash:
+            return "Opens Trash. Drop files here to move them to Trash, or use the context menu to empty it."
         }
     }
 

@@ -45,7 +45,10 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private var quickLaunchKeyModeEnabled = false
 
     private let edgeTolerance: CGFloat = 2
-    private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
+
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 
     override var canBecomeKey: Bool { quickLaunchKeyModeEnabled }
     override var canBecomeMain: Bool { false }
@@ -176,9 +179,12 @@ class DockPanel: NSPanel, NSWindowDelegate {
         else { return }
 
         let isInteractiveResize = !resizeInteractionTokens.isEmpty
+        let wasAutoHidden = isAutoHidden
+        let hiddenEdge = autoHideEdge
+        let hiddenVisibleFrame = activeScreen?.visibleFrame
         let originalFrame = isInteractiveResize
             ? (resizeReferenceFrame ?? frame)
-            : frame
+            : frameForPersistence
         let preservedEdge = isInteractiveResize
             ? resizeReferenceEdge
             : resizeAnchorEdge(for: originalFrame)
@@ -192,11 +198,26 @@ class DockPanel: NSPanel, NSWindowDelegate {
             dockedEdge: preservedEdge
         )
 
-        setFrame(anchoredFrame, display: true)
         container.setFrameSize(enforcedSize)
         hosting.frame = container.bounds
-        if shownFrame != nil {
+        if wasAutoHidden,
+           let hiddenEdge,
+           let hiddenVisibleFrame
+        {
             shownFrame = anchoredFrame
+            setFrame(
+                DockDisplayGeometry.hiddenFrame(
+                    anchoredFrame,
+                    at: hiddenEdge,
+                    in: hiddenVisibleFrame
+                ),
+                display: true
+            )
+        } else {
+            setFrame(anchoredFrame, display: true)
+            if shownFrame != nil {
+                shownFrame = anchoredFrame
+            }
         }
     }
 
@@ -253,13 +274,26 @@ class DockPanel: NSPanel, NSWindowDelegate {
             self.dockContainer?.showRevealIndicator(at: self.revealEdge(for: edge))
             self.hostingView?.alphaValue = 0
             self.hostingView?.isHidden = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.24
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                self.animator().setFrame(
-                    self.hiddenFrame(for: restingFrame, at: edge, in: visibleFrame),
-                    display: true
-                )
+            let hiddenFrame = DockDisplayGeometry.hiddenFrame(
+                restingFrame,
+                at: edge,
+                in: visibleFrame
+            )
+            if DockMotionPolicy.shouldAnimate(
+                reduceMotion: self.reduceMotion
+            ) {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = DockMotionPolicy.duration(
+                        0.24,
+                        reduceMotion: self.reduceMotion
+                    )
+                    context.timingFunction = CAMediaTimingFunction(
+                        name: .easeInEaseOut
+                    )
+                    self.animator().setFrame(hiddenFrame, display: true)
+                }
+            } else {
+                self.setFrame(hiddenFrame, display: true)
             }
         }
 
@@ -278,9 +312,20 @@ class DockPanel: NSPanel, NSWindowDelegate {
         isAutoHideRevealInProgress = true
         revealCompletionWorkItem?.cancel()
         hostingView?.isHidden = false
+        if reduceMotion {
+            hostingView?.alphaValue = 1
+            setFrame(restingFrame, display: true)
+            isAutoHideRevealInProgress = false
+            dockContainer?.hideRevealIndicator()
+            return
+        }
+
         hostingView?.alphaValue = 0
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.28
+            context.duration = DockMotionPolicy.duration(
+                0.28,
+                reduceMotion: self.reduceMotion
+            )
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.hostingView?.animator().alphaValue = 1
             self.animator().setFrame(restingFrame, display: true)
@@ -467,24 +512,4 @@ class DockPanel: NSPanel, NSWindowDelegate {
         )
     }
 
-    private func hiddenFrame(
-        for frame: NSRect,
-        at edge: DockScreenEdge,
-        in visibleFrame: NSRect
-    ) -> NSRect {
-        var hidden = frame
-
-        switch edge {
-        case .left:
-            hidden.origin.x = visibleFrame.minX - frame.width + revealThickness
-        case .right:
-            hidden.origin.x = visibleFrame.maxX - revealThickness
-        case .bottom:
-            hidden.origin.y = visibleFrame.minY - frame.height + revealThickness
-        case .top:
-            hidden.origin.y = visibleFrame.maxY - revealThickness
-        }
-
-        return hidden
-    }
 }

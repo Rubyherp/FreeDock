@@ -8,7 +8,7 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
     init(store: DockPreferencesStore) {
         self.store = store
-        let window = NSWindow(
+        let window = PreferencesWindow(
             contentRect: NSRect(x: 0, y: 0, width: 780, height: 570),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -24,6 +24,15 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         window.setFrameAutosaveName("FreeDockPreferencesWindow")
         super.init(window: window)
         window.delegate = self
+        window.onFind = {
+            NotificationCenter.default.post(
+                name: .freeDockFocusSettingsSearch,
+                object: nil
+            )
+        }
+        window.onUndo = { [weak self] in
+            self?.store.perform(.undo)
+        }
     }
 
     @available(*, unavailable)
@@ -80,5 +89,30 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func refreshPermissionStatus() {
         store.refreshPermissions()
+    }
+
+}
+
+private final class PreferencesWindow: NSWindow {
+    var onFind: (() -> Void)?
+    var onUndo: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(
+            .deviceIndependentFlagsMask
+        )
+        if modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "f"
+        {
+            onFind?()
+            return true
+        }
+        if modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "z"
+        {
+            onUndo?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

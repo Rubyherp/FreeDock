@@ -1,8 +1,16 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let freeDockFocusSettingsSearch = Notification.Name(
+        "FreeDockFocusSettingsSearch"
+    )
+}
+
 struct DockPreferencesView: View {
     @ObservedObject var store: DockPreferencesStore
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @FocusState private var isSettingsSearchFocused: Bool
 
     var body: some View {
         HSplitView {
@@ -16,6 +24,7 @@ struct DockPreferencesView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             store.refreshPermissions()
+            store.refreshLaunchAtLogin()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -23,12 +32,57 @@ struct DockPreferencesView: View {
             )
         ) { _ in
             store.refreshPermissions()
+            store.refreshLaunchAtLogin()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .freeDockFocusSettingsSearch
+            )
+        ) { _ in
+            isSettingsSearchFocused = true
         }
     }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             profileHeader
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField(
+                    "Search Settings",
+                    text: $store.settingsSearchText
+                )
+                .textFieldStyle(.plain)
+                .focused($isSettingsSearchFocused)
+                .accessibilityLabel("Search FreeDock settings")
+
+                if !store.settingsSearchText.isEmpty {
+                    Button {
+                        store.settingsSearchText = ""
+                        isSettingsSearchFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear settings search")
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
 
             Divider()
 
@@ -99,6 +153,20 @@ struct DockPreferencesView: View {
                         Label("Delete Profile…", systemImage: "trash")
                     }
                     .disabled(!store.canDeleteActiveProfile)
+
+                    Divider()
+
+                    Button {
+                        store.perform(.exportConfiguration)
+                    } label: {
+                        Label("Export Configuration…", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        store.perform(.importConfiguration)
+                    } label: {
+                        Label("Import Configuration…", systemImage: "square.and.arrow.down")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 15))
@@ -158,6 +226,17 @@ struct DockPreferencesView: View {
                     .contextMenu {
                         dockActions(for: dock.id)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(dock.name)
+                    .accessibilityValue(
+                        dock.id == store.selectedDockID
+                            ? "\(dockSubtitle(for: dock)), selected"
+                            : dockSubtitle(for: dock)
+                    )
+                    .accessibilityHint("Selects this dock for editing.")
+                    .accessibilityAddTraits(
+                        dock.id == store.selectedDockID ? .isSelected : []
+                    )
                 }
             }
             .listStyle(.sidebar)
@@ -238,6 +317,15 @@ struct DockPreferencesView: View {
         if let dock = store.selectedDock {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if !store.settingsSearchText.isEmpty {
+                        Label(
+                            "Settings matching “\(store.settingsSearchText)”",
+                            systemImage: "magnifyingglass"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    }
+
                     VStack(alignment: .leading, spacing: 5) {
                         Text(dock.name)
                             .font(.system(size: 25, weight: .semibold))
@@ -246,12 +334,78 @@ struct DockPreferencesView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    generalSection
+
+                    profileAutomationSection
+
                     permissionsSection
+
+                    configurationSection
 
                     settingsSection(
                         title: "Appearance",
                         symbol: "paintbrush.fill"
                     ) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            settingRow("Saved themes") {
+                                Menu {
+                                    ForEach(store.themes) { theme in
+                                        Button(theme.name) {
+                                            store.perform(
+                                                .applyDockTheme(
+                                                    themeID: theme.id,
+                                                    dockID: dock.id
+                                                )
+                                            )
+                                        }
+                                    }
+                                } label: {
+                                    Text(
+                                        store.themes.isEmpty
+                                            ? "No Saved Themes"
+                                            : "Apply Theme"
+                                    )
+                                    .frame(minWidth: 108)
+                                }
+                                .disabled(store.themes.isEmpty)
+
+                                Button {
+                                    store.perform(.saveDockTheme(dock.id))
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .help("Save the current appearance as a theme")
+                                .accessibilityLabel("Save current appearance theme")
+
+                                if !store.themes.isEmpty {
+                                    Menu {
+                                        ForEach(store.themes) { theme in
+                                            Button(
+                                                "Delete \(theme.name)…",
+                                                role: .destructive
+                                            ) {
+                                                store.perform(
+                                                    .deleteDockTheme(theme.id)
+                                                )
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                    }
+                                    .help("Manage saved themes")
+                                    .accessibilityLabel("Manage saved themes")
+                                }
+                            }
+                            Text(
+                                "Themes reuse style, opacity, blur, corners, and shadow without changing dock contents or behavior."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Divider()
+
                         settingRow("Style") {
                             Picker("Style", selection: appearanceBinding) {
                                 ForEach(DockAppearance.allCases, id: \.self) { appearance in
@@ -455,6 +609,50 @@ struct DockPreferencesView: View {
                                 smartStack: .downloads,
                                 to: dock.items
                             ).addedCount > 0
+                        let canAddTrash = DockItemPlanner.planAddingTrash(
+                            to: dock.items
+                        ).addedCount > 0
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            settingRow("Recent & running apps") {
+                                Toggle("", isOn: dynamicApplicationsBinding)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .accessibilityLabel("Recent and running apps")
+                            }
+                            Text(
+                                "Adds unpinned running apps first, followed by apps recently observed by FreeDock. History stays local."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Divider()
+
+                        settingRow("Maximum apps") {
+                            Stepper(
+                                "\(dock.dynamicApplicationLimit)",
+                                value: dynamicApplicationLimitBinding,
+                                in: 1 ... 10
+                            )
+                            .frame(width: 90)
+                        }
+                        .disabled(!dock.showDynamicApplications)
+                        .opacity(dock.showDynamicApplications ? 1 : 0.48)
+
+                        Divider()
+
+                        actionRow(
+                            title: "Trash",
+                            description: "Open Trash, move dropped files into it, or empty it after confirmation.",
+                            buttonTitle: canAddTrash ? "Add" : "Added",
+                            isDisabled: !canAddTrash
+                        ) {
+                            store.perform(.addTrash(dock.id))
+                        }
+
+                        Divider()
 
                         actionRow(
                             title: "Recent Files stack",
@@ -541,6 +739,15 @@ struct DockPreferencesView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
+                    if !store.settingsSearchText.isEmpty {
+                        Label(
+                            "Settings matching “\(store.settingsSearchText)”",
+                            systemImage: "magnifyingglass"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    }
+
                     VStack(spacing: 12) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 38, weight: .light))
@@ -558,11 +765,112 @@ struct DockPreferencesView: View {
                         alignment: .center
                     )
 
+                    generalSection
+
+                    profileAutomationSection
+
                     permissionsSection
+
+                    configurationSection
                 }
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
             }
+        }
+    }
+
+    private var profileAutomationSection: some View {
+        settingsSection(
+            title: "Profile Automation",
+            symbol: "bolt.fill"
+        ) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Activate “\(store.activeProfileName)” automatically")
+                Text("Rules use public macOS app and display events and remain entirely on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if store.activeProfileAutomationRules.isEmpty {
+                Text("No automation rules for this profile.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(store.activeProfileAutomationRules) { rule in
+                    Divider()
+                    HStack(spacing: 10) {
+                        Image(systemName: rule.triggerKind == .application
+                            ? "app.fill"
+                            : "display")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(rule.label)
+                                .lineLimit(1)
+                            Text(rule.triggerKind == .application
+                                ? "When this app becomes active"
+                                : "When this display connects")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Toggle("Enable \(rule.label)", isOn: Binding(
+                            get: { rule.isEnabled },
+                            set: { enabled in
+                                store.perform(.setProfileAutomationEnabled(
+                                    profileID: store.activeProfileID,
+                                    ruleID: rule.id,
+                                    enabled: enabled
+                                ))
+                            }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+
+                        Button(role: .destructive) {
+                            store.perform(.deleteProfileAutomation(
+                                profileID: store.activeProfileID,
+                                ruleID: rule.id
+                            ))
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete automation for \(rule.label)")
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Add Application…") {
+                    store.perform(.addProfileApplicationAutomation(
+                        store.activeProfileID
+                    ))
+                }
+
+                Menu("Add Display") {
+                    ForEach(store.displays) { display in
+                        Button(display.label) {
+                            store.perform(.addProfileDisplayAutomation(
+                                profileID: store.activeProfileID,
+                                displayID: display.id
+                            ))
+                        }
+                    }
+                }
+                .disabled(store.displays.isEmpty)
+
+                Spacer()
+            }
+            .controlSize(.small)
         }
     }
 
@@ -589,6 +897,210 @@ struct DockPreferencesView: View {
                 if presentation.id != presentations.last?.id {
                     Divider()
                 }
+            }
+        }
+    }
+
+    private var generalSection: some View {
+        settingsSection(
+            title: "General",
+            symbol: "gearshape.fill"
+        ) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Launch at login")
+                    Text(
+                        "Start FreeDock automatically after you sign in to this Mac."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    if let error = store.launchAtLoginState.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if store.launchAtLoginState.needsApproval {
+                        Button("Open Login Items Settings…") {
+                            store.openLoginItemsSettings()
+                        }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                    Toggle("Launch at login", isOn: launchAtLoginBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!store.launchAtLoginState.canChange)
+                    Text(store.launchAtLoginState.statusLabel)
+                        .font(.caption2)
+                        .foregroundStyle(
+                            store.launchAtLoginState.needsApproval
+                                ? Color.orange
+                                : Color.secondary
+                        )
+                }
+            }
+
+            Divider()
+
+            shortcutRow(for: .showHideDocks)
+
+            Divider()
+
+            shortcutRow(for: .quickLaunch)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Switch profiles")
+                    Text("Assign a global shortcut to each workflow. Press Delete while recording to clear one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(store.profiles) { profile in
+                    profileShortcutRow(profile)
+                }
+            }
+
+            if let error = store.shortcutError {
+                Divider()
+
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            HStack {
+                Text("Click a shortcut, then type a new key combination.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Restore Defaults") {
+                    store.resetGlobalShortcuts()
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func shortcutRow(for action: GlobalShortcutAction) -> some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(action.title)
+                Text(shortcutDescription(for: action))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ShortcutRecorderButton(
+                shortcut: store.globalShortcuts.shortcut(for: action)
+            ) { shortcut in
+                store.updateGlobalShortcut(shortcut, for: action)
+            }
+            .frame(width: 135, height: 26)
+        }
+    }
+
+    private func shortcutDescription(
+        for action: GlobalShortcutAction
+    ) -> String {
+        switch action {
+        case .showHideDocks:
+            return "Toggle every dock in the active profile."
+        case .quickLaunch:
+            return "Search and open items from the nearest dock."
+        }
+    }
+
+    private func profileShortcutRow(_ profile: DockProfile) -> some View {
+        HStack(spacing: 18) {
+            HStack(spacing: 7) {
+                Image(systemName: profile.id == store.activeProfileID
+                    ? "checkmark.circle.fill"
+                    : "circle")
+                    .foregroundStyle(profile.id == store.activeProfileID
+                        ? Color.accentColor
+                        : Color.secondary)
+                Text(profile.name)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ShortcutRecorderButton(
+                optionalShortcut: store.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            ) { shortcut in
+                store.updateProfileShortcut(shortcut, for: profile.id)
+            }
+            .frame(width: 135, height: 26)
+        }
+        .padding(.leading, 10)
+    }
+
+    private var configurationSection: some View {
+        settingsSection(
+            title: "Backup & Restore",
+            symbol: "externaldrive.fill"
+        ) {
+            actionRow(
+                title: "Export configuration",
+                description: "Save every profile, dock, pinned item, and recent-file entry as a portable JSON backup.",
+                buttonTitle: "Export…"
+            ) {
+                store.perform(.exportConfiguration)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Import configuration",
+                description: "Replace the current setup from a FreeDock JSON backup. Your existing setup is preserved in the automatic recovery history.",
+                buttonTitle: "Import…"
+            ) {
+                store.perform(.importConfiguration)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Restore last working configuration",
+                description: "Recover the newest valid automatic backup if a recent change or damaged file caused a problem.",
+                buttonTitle: "Restore…"
+            ) {
+                store.perform(.restoreLastWorkingConfiguration)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Export current profile",
+                description: "Share “\(store.activeProfileName)” with its docks, automation rules, custom artwork, and shortcut.",
+                buttonTitle: "Export…"
+            ) {
+                store.perform(.exportActiveProfile)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Import profile",
+                description: "Add one profile without replacing your existing profiles or local history.",
+                buttonTitle: "Import…"
+            ) {
+                store.perform(.importProfile)
             }
         }
     }
@@ -770,23 +1282,68 @@ struct DockPreferencesView: View {
         symbol: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-                .foregroundStyle(.primary)
+        Group {
+            if PreferencesSearchMatcher.matches(
+                query: store.settingsSearchText,
+                text: title + " " + searchKeywords(for: title)
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(title, systemImage: symbol)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
 
-            VStack(spacing: 13) {
-                content()
+                    VStack(spacing: 13) {
+                        content()
+                    }
+                    .padding(15)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(
+                                Color.primary.opacity(
+                                    colorSchemeContrast == .increased
+                                        ? 0.32
+                                        : 0.09
+                                ),
+                                lineWidth: colorSchemeContrast == .increased
+                                    ? 1.5
+                                    : 1
+                            )
+                    )
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(title) settings")
             }
-            .padding(15)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-            )
+        }
+    }
+
+    private func searchKeywords(for sectionTitle: String) -> String {
+        switch sectionTitle {
+        case "General":
+            return "launch login shortcut keyboard quick launch show hide switch profiles"
+        case "Profile Automation":
+            return "workflow rules application app frontmost display monitor connect"
+        case "Permissions":
+            return "privacy accessibility screen recording thumbnails windows"
+        case "Backup & Restore":
+            return "configuration import export json backup restore"
+        case "Appearance":
+            return "theme style glass solid opacity blur corner radius shadow"
+        case "Icons & Layout":
+            return "icon size magnification zoom spacing running indicators"
+        case "Placement":
+            return "display monitor orientation horizontal vertical position"
+        case "Behavior":
+            return "auto hide delay edge reveal"
+        case "Content":
+            return "recent running apps trash files folders downloads stack import dock history"
+        case "Reuse & Reset":
+            return "defaults copy other docks reset"
+        default:
+            return ""
         }
     }
 
@@ -848,6 +1405,27 @@ struct DockPreferencesView: View {
         Binding(
             get: { store.selectedDock?.orientation ?? .horizontal },
             set: { store.updateSelected(.orientation($0)) }
+        )
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { store.launchAtLoginState.isEnabled },
+            set: { store.setLaunchAtLoginEnabled($0) }
+        )
+    }
+
+    private var dynamicApplicationsBinding: Binding<Bool> {
+        Binding(
+            get: { store.selectedDock?.showDynamicApplications ?? false },
+            set: { store.updateSelected(.showDynamicApplications($0)) }
+        )
+    }
+
+    private var dynamicApplicationLimitBinding: Binding<Int> {
+        Binding(
+            get: { store.selectedDock?.dynamicApplicationLimit ?? 5 },
+            set: { store.updateSelected(.dynamicApplicationLimit($0)) }
         )
     }
 

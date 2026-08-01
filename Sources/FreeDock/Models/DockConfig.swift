@@ -12,6 +12,8 @@ struct DockSettings: Equatable, Sendable {
     var cornerRadius: Double
     var shadowStrength: Double
     var showRunningIndicators: Bool
+    var showDynamicApplications: Bool
+    var dynamicApplicationLimit: Int
     var autoHideWhenDocked: Bool
     var autoHideDelay: Double
 
@@ -27,6 +29,8 @@ struct DockSettings: Equatable, Sendable {
         cornerRadius = config.cornerRadius
         shadowStrength = config.shadowStrength
         showRunningIndicators = config.showRunningIndicators
+        showDynamicApplications = config.showDynamicApplications
+        dynamicApplicationLimit = config.dynamicApplicationLimit
         autoHideWhenDocked = config.autoHideWhenDocked
         autoHideDelay = config.autoHideDelay
     }
@@ -58,6 +62,8 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
     var cornerRadius: Double
     var shadowStrength: Double
     var showRunningIndicators: Bool
+    var showDynamicApplications: Bool
+    var dynamicApplicationLimit: Int
     var autoHideDelay: Double
 
     init(id: UUID = UUID(), name: String, position: CGPoint = .zero,
@@ -68,7 +74,10 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
          itemSpacing: Double = 3, appearance: DockAppearance = .glass,
          surfaceOpacity: Double = 1, blurStyle: DockBlurStyle = .regular,
          cornerRadius: Double = 18, shadowStrength: Double = 1,
-         showRunningIndicators: Bool = true, autoHideDelay: Double = 1) {
+         showRunningIndicators: Bool = true,
+         showDynamicApplications: Bool = false,
+         dynamicApplicationLimit: Int = 5,
+         autoHideDelay: Double = 1) {
         self.id = id
         self.name = name
         self.position = position
@@ -86,6 +95,8 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         self.cornerRadius = Self.clamp(cornerRadius, to: Self.cornerRadiusRange)
         self.shadowStrength = Self.clamp(shadowStrength, to: Self.shadowStrengthRange)
         self.showRunningIndicators = showRunningIndicators
+        self.showDynamicApplications = showDynamicApplications
+        self.dynamicApplicationLimit = min(max(dynamicApplicationLimit, 1), 10)
         self.autoHideDelay = Self.clamp(autoHideDelay, to: Self.autoHideDelayRange)
         normalizeDisplayPlacementEdge()
     }
@@ -114,6 +125,8 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         cornerRadius = Self.clamp(settings.cornerRadius, to: Self.cornerRadiusRange)
         shadowStrength = Self.clamp(settings.shadowStrength, to: Self.shadowStrengthRange)
         showRunningIndicators = settings.showRunningIndicators
+        showDynamicApplications = settings.showDynamicApplications
+        dynamicApplicationLimit = min(max(settings.dynamicApplicationLimit, 1), 10)
         autoHideWhenDocked = settings.autoHideWhenDocked
         autoHideDelay = Self.clamp(settings.autoHideDelay, to: Self.autoHideDelayRange)
         normalizeDisplayPlacementEdge()
@@ -144,6 +157,8 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
             cornerRadius: cornerRadius,
             shadowStrength: shadowStrength,
             showRunningIndicators: showRunningIndicators,
+            showDynamicApplications: showDynamicApplications,
+            dynamicApplicationLimit: dynamicApplicationLimit,
             autoHideDelay: autoHideDelay
         )
     }
@@ -166,6 +181,8 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
         case cornerRadius
         case shadowStrength
         case showRunningIndicators
+        case showDynamicApplications
+        case dynamicApplicationLimit
         case autoHideDelay
     }
 
@@ -210,6 +227,17 @@ struct DockConfig: Codable, Identifiable, Equatable, Sendable {
             to: Self.shadowStrengthRange
         )
         showRunningIndicators = try container.decodeIfPresent(Bool.self, forKey: .showRunningIndicators) ?? true
+        showDynamicApplications = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .showDynamicApplications
+        ) ?? false
+        dynamicApplicationLimit = min(max(
+            try container.decodeIfPresent(
+                Int.self,
+                forKey: .dynamicApplicationLimit
+            ) ?? 5,
+            1
+        ), 10)
         autoHideDelay = Self.clamp(
             try container.decodeIfPresent(Double.self, forKey: .autoHideDelay) ?? 1,
             to: Self.autoHideDelayRange

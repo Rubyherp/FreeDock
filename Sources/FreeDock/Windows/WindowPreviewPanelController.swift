@@ -55,6 +55,22 @@ enum WindowPreviewPanelEventPolicy {
     }
 }
 
+enum WindowPreviewPermissionFallback: Equatable, Sendable {
+    case closePreview
+    case metadataOnly
+    case fullPreview
+}
+
+enum WindowPreviewPermissionPolicy {
+    static func fallback(
+        accessibilityTrusted: Bool,
+        screenCaptureTrusted: Bool
+    ) -> WindowPreviewPermissionFallback {
+        guard accessibilityTrusted else { return .closePreview }
+        return screenCaptureTrusted ? .fullPreview : .metadataOnly
+    }
+}
+
 enum WindowPreviewKeyboardAction: Equatable, Sendable {
     case previous
     case next
@@ -180,6 +196,38 @@ final class WindowPreviewPanelController {
         loadThumbnails(for: sessionID)
     }
 
+    func reconcilePermissions() {
+        switch WindowPreviewPermissionPolicy.fallback(
+            accessibilityTrusted:
+                applicationWindows.isAccessibilityTrusted,
+            screenCaptureTrusted:
+                applicationWindows.isScreenCaptureTrusted
+        ) {
+        case .closePreview:
+            if hoverState.session != nil || panel.isVisible {
+                close(resetNativeController: true)
+            }
+        case .metadataOnly:
+            thumbnailTask?.cancel()
+            thumbnailTask = nil
+            applicationWindows.clearThumbnailCache()
+            thumbnails = [:]
+            thumbnailLoadingIDs = []
+            thumbnailUnavailableIDs = []
+            if panel.isVisible,
+               let target,
+               let sessionID = hoverState.session?.id
+            {
+                configurePanelContent(
+                    target: target,
+                    sessionID: sessionID
+                )
+            }
+        case .fullPreview:
+            break
+        }
+    }
+
     private func showScreenCaptureInstructions() {
         let alert = NSAlert()
         alert.alertStyle = .informational
@@ -278,6 +326,9 @@ final class WindowPreviewPanelController {
 
         guard applicationWindows.isAccessibilityTrusted else {
             _ = applicationWindows.requestAccessibilityAccess()
+            if !applicationWindows.isAccessibilityTrusted {
+                showAccessibilityInstructions()
+            }
             return
         }
 
@@ -356,6 +407,22 @@ final class WindowPreviewPanelController {
         keyboardSelection = WindowPreviewKeyboardSelection()
         if resetNativeController {
             applicationWindows.reset()
+        }
+    }
+
+    private func showAccessibilityInstructions() {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Enable Window Switching"
+        alert.informativeText = "Allow FreeDock in System Settings → Privacy & Security → Accessibility, then use Show Windows again. The dock continues to launch apps without this permission."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Not Now")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(
+               string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+           )
+        {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -711,6 +778,10 @@ final class WindowPreviewPanelController {
         close(resetNativeController: false)
         Task { @MainActor in
             let result = await controller.focusWindow(id: windowID)
+            if result == .permissionRequired {
+                self.showAccessibilityInstructions()
+                return
+            }
             guard result == .accepted else {
                 NSSound.beep()
                 return
@@ -785,6 +856,7 @@ final class WindowPreviewPanelController {
     }
 
     private func scheduleRefresh() {
+        reconcilePermissions()
         refreshTask?.cancel()
         guard panel.isVisible,
               let target,

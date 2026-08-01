@@ -12,6 +12,8 @@ enum DockItemTransferDestination: Equatable, Sendable {
     /// For a same-dock move this matches the existing reorder behavior: the
     /// moved item finishes at the target item's pre-move index.
     case item(UUID)
+    /// Removes the source item from its dock while retaining the target Trash.
+    case trash(UUID)
     case trailing
 }
 
@@ -19,12 +21,15 @@ enum DockItemTransferRejection: Equatable, Sendable {
     case sourceItemNotFound
     case targetItemNotFound(UUID)
     case duplicateItem(existingItemID: UUID)
+    case invalidTrashTarget(UUID)
+    case cannotRemoveTrash
     case inconsistentSameDockItems
 }
 
 enum DockItemTransferOutcome: Equatable, Sendable {
     case moved(itemID: UUID)
     case copied(itemID: UUID)
+    case removed(itemID: UUID)
     case unchanged
     case rejected(DockItemTransferRejection)
 }
@@ -36,7 +41,7 @@ struct DockItemTransferPlan: Equatable, Sendable {
 
     var didTransfer: Bool {
         switch outcome {
-        case .moved, .copied:
+        case .moved, .copied, .removed:
             return true
         case .unchanged, .rejected:
             return false
@@ -69,6 +74,37 @@ enum DockItemTransferPlanner {
                 reason: .sourceItemNotFound
             )
         }
+        let sourceItem = sourceDock.items[sourceIndex]
+
+        if case let .trash(targetTrashID) = destination {
+            guard targetDock.items.contains(where: {
+                $0.id == targetTrashID && $0.kind == .trash
+            }) else {
+                return rejectedPlan(
+                    sourceItems: sourceDock.items,
+                    targetItems: targetDock.items,
+                    reason: .invalidTrashTarget(targetTrashID)
+                )
+            }
+            guard sourceItem.kind != .trash else {
+                return rejectedPlan(
+                    sourceItems: sourceDock.items,
+                    targetItems: targetDock.items,
+                    reason: .cannotRemoveTrash
+                )
+            }
+
+            var sourceItems = sourceDock.items
+            sourceItems.remove(at: sourceIndex)
+            let targetItems = sourceDock.id == targetDock.id
+                ? sourceItems
+                : targetDock.items
+            return DockItemTransferPlan(
+                sourceItems: sourceItems,
+                targetItems: targetItems,
+                outcome: .removed(itemID: sourceItem.id)
+            )
+        }
 
         if sourceDock.id == targetDock.id {
             guard sourceDock.items == targetDock.items else {
@@ -85,7 +121,6 @@ enum DockItemTransferPlanner {
             )
         }
 
-        let sourceItem = sourceDock.items[sourceIndex]
         guard let insertionIndex = insertionIndex(
             for: destination,
             in: targetDock.items
@@ -157,6 +192,8 @@ enum DockItemTransferPlanner {
         switch destination {
         case .item:
             finalIndex = targetIndex
+        case .trash:
+            preconditionFailure("Trash removal is planned before reordering")
         case .trailing:
             finalIndex = items.index(before: items.endIndex)
         }
@@ -191,6 +228,8 @@ enum DockItemTransferPlanner {
         switch destination {
         case let .item(targetItemID):
             return items.firstIndex { $0.id == targetItemID }
+        case .trash:
+            return nil
         case .trailing:
             return items.endIndex
         }
@@ -202,6 +241,8 @@ enum DockItemTransferPlanner {
         switch destination {
         case let .item(targetItemID):
             return .targetItemNotFound(targetItemID)
+        case let .trash(targetItemID):
+            return .invalidTrashTarget(targetItemID)
         case .trailing:
             preconditionFailure("A trailing destination always has an index")
         }
@@ -237,6 +278,9 @@ enum DockItemTransferPlanner {
         for item: DockItem,
         downloadsURL: URL?
     ) -> DockItemContentIdentity? {
+        if item.kind == .trash {
+            return .trash
+        }
         if let source = item.smartStackSource {
             if source == .downloads, let downloadsURL {
                 return .file(pathIdentity(for: downloadsURL))
@@ -291,4 +335,5 @@ enum DockItemTransferPlanner {
 private enum DockItemContentIdentity: Equatable {
     case file(String)
     case smartStack(SmartStackSource)
+    case trash
 }

@@ -1,15 +1,21 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 4
+    static let currentFormatVersion = 10
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
     var recentFiles: [RecentFileRecord]
+    var globalShortcuts: GlobalShortcutSettings
+    var recentApplications: [RecentApplicationRecord]
+    var themes: [DockTheme]
 
     init(
         docks: [DockConfig] = [],
-        recentFiles: [RecentFileRecord] = []
+        recentFiles: [RecentFileRecord] = [],
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        recentApplications: [RecentApplicationRecord] = [],
+        themes: [DockTheme] = []
     ) {
         let profile = DockProfile(name: "Default", docks: docks)
         profiles = [profile]
@@ -18,12 +24,21 @@ struct AppConfig: Codable, Sendable {
             recentFiles,
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        self.globalShortcuts = globalShortcuts
+        self.globalShortcuts.reconcileProfiles(profiles)
+        self.recentApplications = RecentApplicationHistoryPlanner.normalized(
+            recentApplications
+        )
+        self.themes = themes
     }
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID? = nil,
-        recentFiles: [RecentFileRecord] = []
+        recentFiles: [RecentFileRecord] = [],
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        recentApplications: [RecentApplicationRecord] = [],
+        themes: [DockTheme] = []
     ) {
         let availableProfiles = profiles.isEmpty ? [DockProfile(name: "Default")] : profiles
         self.profiles = availableProfiles
@@ -38,6 +53,12 @@ struct AppConfig: Codable, Sendable {
             recentFiles,
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        self.globalShortcuts = globalShortcuts
+        self.globalShortcuts.reconcileProfiles(availableProfiles)
+        self.recentApplications = RecentApplicationHistoryPlanner.normalized(
+            recentApplications
+        )
+        self.themes = themes
     }
 
     var docks: [DockConfig] {
@@ -65,6 +86,9 @@ struct AppConfig: Codable, Sendable {
         case activeProfileID
         case docks
         case recentFiles
+        case globalShortcuts
+        case recentApplications
+        case themes
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +100,17 @@ struct AppConfig: Codable, Sendable {
             )) ?? [],
             limit: RecentFileHistoryPlanner.maximumLimit
         )
+        globalShortcuts = (try? container.decode(
+            GlobalShortcutSettings.self,
+            forKey: .globalShortcuts
+        )) ?? GlobalShortcutSettings()
+        recentApplications = RecentApplicationHistoryPlanner.normalized(
+            (try? container.decode(
+                [RecentApplicationRecord].self,
+                forKey: .recentApplications
+            )) ?? []
+        )
+        themes = (try? container.decode([DockTheme].self, forKey: .themes)) ?? []
 
         if let decodedProfiles = try container.decodeIfPresent([DockProfile].self, forKey: .profiles),
            !decodedProfiles.isEmpty
@@ -89,6 +124,7 @@ struct AppConfig: Codable, Sendable {
             } else {
                 activeProfileID = decodedProfiles[0].id
             }
+            globalShortcuts.reconcileProfiles(profiles)
             return
         }
 
@@ -96,6 +132,7 @@ struct AppConfig: Codable, Sendable {
         let migratedProfile = DockProfile(name: "Default", docks: legacyDocks)
         profiles = [migratedProfile]
         activeProfileID = migratedProfile.id
+        globalShortcuts.reconcileProfiles(profiles)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -105,5 +142,8 @@ struct AppConfig: Codable, Sendable {
         try container.encode(activeProfileID, forKey: .activeProfileID)
         try container.encode(docks, forKey: .docks)
         try container.encode(recentFiles, forKey: .recentFiles)
+        try container.encode(globalShortcuts, forKey: .globalShortcuts)
+        try container.encode(recentApplications, forKey: .recentApplications)
+        try container.encode(themes, forKey: .themes)
     }
 }

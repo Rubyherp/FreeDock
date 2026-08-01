@@ -13,6 +13,8 @@ class DockState: ObservableObject {
     @Published var cornerRadius: Double
     @Published var shadowStrength: Double
     @Published var showRunningIndicators: Bool
+    @Published var showDynamicApplications: Bool
+    @Published var dynamicApplicationLimit: Int
     @Published private(set) var isQuickLaunchPresented = false
     @Published private(set) var quickLaunchFocusGeneration = 0
 
@@ -28,6 +30,8 @@ class DockState: ObservableObject {
         cornerRadius = config.cornerRadius
         shadowStrength = config.shadowStrength
         showRunningIndicators = config.showRunningIndicators
+        showDynamicApplications = config.showDynamicApplications
+        dynamicApplicationLimit = config.dynamicApplicationLimit
     }
 
     func apply(_ config: DockConfig) {
@@ -42,6 +46,8 @@ class DockState: ObservableObject {
         cornerRadius = config.cornerRadius
         shadowStrength = config.shadowStrength
         showRunningIndicators = config.showRunningIndicators
+        showDynamicApplications = config.showDynamicApplications
+        dynamicApplicationLimit = config.dynamicApplicationLimit
     }
 
     func presentQuickLaunch() {
