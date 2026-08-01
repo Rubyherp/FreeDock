@@ -35,6 +35,18 @@ FreeDock is a free and open-source alternative for people who want more than one
 
 It is written in SwiftUI and AppKit, stores its configuration locally, and does not require an account or subscription.
 
+## Support FreeDock
+
+FreeDock is MIT-licensed and every feature remains free. If the project is useful to you, you can support its continued development and the creator’s education.
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/thksalot">
+    <img src="docs/qr-code.png" width="150" alt="Buy Me a Coffee QR code">
+  </a>
+  <br>
+  <a href="https://www.buymeacoffee.com/thksalot"><strong>Buy me a coffee</strong></a>
+</p>
+
 ## Preview
 
 ### Appearance that adapts per dock
@@ -170,18 +182,6 @@ FreeDock is actively developed. The core dock, profile, organization, window-swi
 Contributions, bug reports, design feedback, documentation improvements, and focused feature proposals are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use the issue templates when reporting a problem or suggesting a feature.
 
 Please report security vulnerabilities privately using [SECURITY.md](SECURITY.md).
-
-## Support FreeDock
-
-FreeDock is MIT-licensed and every feature remains free. If the project is useful to you, you can support its continued development and the creator’s education.
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/thksalot">
-    <img src="docs/qr-code.png" width="150" alt="Buy Me a Coffee QR code">
-  </a>
-  <br>
-  <a href="https://www.buymeacoffee.com/thksalot"><strong>Buy me a coffee</strong></a>
-</p>
 
 ## License
 
