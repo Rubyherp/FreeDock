@@ -17,6 +17,8 @@ enum DockPreferenceChange: Equatable {
 }
 
 enum DockManagementAction: Equatable {
+    case exportConfiguration
+    case importConfiguration
     case activateProfile(UUID)
     case createProfile
     case renameActiveProfile
@@ -75,6 +77,7 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var docks: [DockConfig]
     @Published private(set) var displays: [DockDisplayDescriptor]
     @Published private(set) var permissionState: PreferencesPermissionState
+    @Published private(set) var launchAtLoginState: LaunchAtLoginState
     @Published var selectedDockID: UUID?
 
     private let onChange: (UUID, DockPreferenceChange) -> Void
@@ -82,12 +85,16 @@ final class DockPreferencesStore: ObservableObject {
     private let permissionSnapshot: () -> PreferencesPermissionSnapshot
     private let onPermissionAction: (PreferencesPermissionKind) -> Void
     private let onOpenPermissionSettings: (PreferencesPermissionKind) -> Void
+    private let launchAtLoginSnapshot: () -> LaunchAtLoginState
+    private let onLaunchAtLoginChange: (Bool) -> LaunchAtLoginState
+    private let onOpenLoginItemsSettings: () -> Void
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID,
         displays: [DockDisplayDescriptor] = [],
         permissionState: PreferencesPermissionState = PreferencesPermissionState(),
+        launchAtLoginState: LaunchAtLoginState = LaunchAtLoginState(),
         onChange: @escaping (UUID, DockPreferenceChange) -> Void,
         onManagementAction: @escaping (DockManagementAction) -> Void,
         permissionSnapshot: @escaping () -> PreferencesPermissionSnapshot = {
@@ -98,6 +105,14 @@ final class DockPreferencesStore: ObservableObject {
         },
         onOpenPermissionSettings: @escaping (PreferencesPermissionKind) -> Void = {
             _ in
+        },
+        launchAtLoginSnapshot: @escaping () -> LaunchAtLoginState = {
+            LaunchAtLoginState()
+        },
+        onLaunchAtLoginChange: @escaping (Bool) -> LaunchAtLoginState = {
+            enabled in LaunchAtLoginState(status: enabled ? .enabled : .disabled)
+        },
+        onOpenLoginItemsSettings: @escaping () -> Void = {
         }
     ) {
         self.profiles = profiles
@@ -106,12 +121,16 @@ final class DockPreferencesStore: ObservableObject {
         docks = activeDocks
         self.displays = displays
         self.permissionState = permissionState
+        self.launchAtLoginState = launchAtLoginState
         selectedDockID = activeDocks.first?.id
         self.onChange = onChange
         self.onManagementAction = onManagementAction
         self.permissionSnapshot = permissionSnapshot
         self.onPermissionAction = onPermissionAction
         self.onOpenPermissionSettings = onOpenPermissionSettings
+        self.launchAtLoginSnapshot = launchAtLoginSnapshot
+        self.onLaunchAtLoginChange = onLaunchAtLoginChange
+        self.onOpenLoginItemsSettings = onOpenLoginItemsSettings
     }
 
     var activeProfileName: String {
@@ -174,6 +193,20 @@ final class DockPreferencesStore: ObservableObject {
             return
         }
         permissionState = updatedState
+    }
+
+    func refreshLaunchAtLogin() {
+        let snapshot = launchAtLoginSnapshot()
+        guard snapshot != launchAtLoginState else { return }
+        launchAtLoginState = snapshot
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        launchAtLoginState = onLaunchAtLoginChange(enabled)
+    }
+
+    func openLoginItemsSettings() {
+        onOpenLoginItemsSettings()
     }
 
     func performPermissionAction(_ permission: PreferencesPermissionKind) {

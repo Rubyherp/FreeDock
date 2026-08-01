@@ -16,6 +16,7 @@ struct DockPreferencesView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             store.refreshPermissions()
+            store.refreshLaunchAtLogin()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -23,6 +24,7 @@ struct DockPreferencesView: View {
             )
         ) { _ in
             store.refreshPermissions()
+            store.refreshLaunchAtLogin()
         }
     }
 
@@ -99,6 +101,20 @@ struct DockPreferencesView: View {
                         Label("Delete Profile…", systemImage: "trash")
                     }
                     .disabled(!store.canDeleteActiveProfile)
+
+                    Divider()
+
+                    Button {
+                        store.perform(.exportConfiguration)
+                    } label: {
+                        Label("Export Configuration…", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        store.perform(.importConfiguration)
+                    } label: {
+                        Label("Import Configuration…", systemImage: "square.and.arrow.down")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 15))
@@ -246,7 +262,11 @@ struct DockPreferencesView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    generalSection
+
                     permissionsSection
+
+                    configurationSection
 
                     settingsSection(
                         title: "Appearance",
@@ -558,7 +578,11 @@ struct DockPreferencesView: View {
                         alignment: .center
                     )
 
+                    generalSection
+
                     permissionsSection
+
+                    configurationSection
                 }
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
@@ -589,6 +613,78 @@ struct DockPreferencesView: View {
                 if presentation.id != presentations.last?.id {
                     Divider()
                 }
+            }
+        }
+    }
+
+    private var generalSection: some View {
+        settingsSection(
+            title: "General",
+            symbol: "gearshape.fill"
+        ) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Launch at login")
+                    Text(
+                        "Start FreeDock automatically after you sign in to this Mac."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    if let error = store.launchAtLoginState.errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if store.launchAtLoginState.needsApproval {
+                        Button("Open Login Items Settings…") {
+                            store.openLoginItemsSettings()
+                        }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                    Toggle("Launch at login", isOn: launchAtLoginBinding)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!store.launchAtLoginState.canChange)
+                    Text(store.launchAtLoginState.statusLabel)
+                        .font(.caption2)
+                        .foregroundStyle(
+                            store.launchAtLoginState.needsApproval
+                                ? Color.orange
+                                : Color.secondary
+                        )
+                }
+            }
+        }
+    }
+
+    private var configurationSection: some View {
+        settingsSection(
+            title: "Backup & Restore",
+            symbol: "externaldrive.fill"
+        ) {
+            actionRow(
+                title: "Export configuration",
+                description: "Save every profile, dock, pinned item, and recent-file entry as a portable JSON backup.",
+                buttonTitle: "Export…"
+            ) {
+                store.perform(.exportConfiguration)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Import configuration",
+                description: "Replace the current setup from a FreeDock JSON backup. Your existing setup is preserved in the automatic backup file.",
+                buttonTitle: "Import…"
+            ) {
+                store.perform(.importConfiguration)
             }
         }
     }
@@ -848,6 +944,13 @@ struct DockPreferencesView: View {
         Binding(
             get: { store.selectedDock?.orientation ?? .horizontal },
             set: { store.updateSelected(.orientation($0)) }
+        )
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { store.launchAtLoginState.isEnabled },
+            set: { store.setLaunchAtLoginEnabled($0) }
         )
     }
 

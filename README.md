@@ -53,6 +53,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
 - **Quick Launch** — Press `⌘⇧Space`, type to search the nearest dock, choose with arrows or Tab, and press Return to open
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
+- **Launch at login** — Optionally start FreeDock automatically when you sign in on macOS 13 or later
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
@@ -70,6 +71,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Lock positions** — Prevent accidental dock movement
 - **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
 - **Persistent config** — All docks are saved to `~/.config/freedock.json`
+- **Portable backups** — Export or restore every profile and dock from a human-readable JSON file
 - **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
 
 ## Free and open source, permanently

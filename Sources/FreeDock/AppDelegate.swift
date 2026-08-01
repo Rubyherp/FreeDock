@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -316,6 +317,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 onOpenPermissionSettings: {
                     [weak self] permission in
                     self?.openPermissionSettings(permission)
+                },
+                launchAtLoginSnapshot: {
+                    LaunchAtLoginController.state
+                },
+                onLaunchAtLoginChange: { enabled in
+                    LaunchAtLoginController.setEnabled(enabled)
+                },
+                onOpenLoginItemsSettings: {
+                    LaunchAtLoginController.openSystemSettings()
                 }
             )
             preferencesStore = store
@@ -333,6 +343,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             displays: DockDisplayManager.connectedDisplays
         )
         preferencesStore?.refreshPermissions()
+        preferencesStore?.refreshLaunchAtLogin()
     }
 
     private func handlePermissionAction(
@@ -397,6 +408,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleDockManagementAction(_ action: DockManagementAction) {
         switch action {
+        case .exportConfiguration:
+            exportConfiguration()
+        case .importConfiguration:
+            importConfiguration()
         case let .activateProfile(profileID):
             activateProfile(profileID)
         case .createProfile:
@@ -432,6 +447,80 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.preferencesWindowController?.show()
         }
+    }
+
+    private func exportConfiguration() {
+        saveAllPositions()
+
+        let panel = NSSavePanel()
+        panel.title = "Export FreeDock Configuration"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = "FreeDock Configuration.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try ConfigFileCodec.encode(configManager.config)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Export Configuration",
+                error: error
+            )
+        }
+    }
+
+    private func importConfiguration() {
+        let panel = NSOpenPanel()
+        panel.title = "Import FreeDock Configuration"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let imported: AppConfig
+        do {
+            imported = try ConfigFileCodec.decode(Data(contentsOf: url))
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Import Configuration",
+                error: error
+            )
+            return
+        }
+
+        let profileCount = imported.profiles.count
+        let dockCount = imported.profiles.reduce(0) { $0 + $1.docks.count }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Replace the current FreeDock configuration?"
+        alert.informativeText = "This file contains \(profileCount) profile\(profileCount == 1 ? "" : "s") and \(dockCount) dock\(dockCount == 1 ? "" : "s"). Your current configuration will be kept in freedock.json.bak."
+        alert.addButton(withTitle: "Cancel")
+        let importButton = alert.addButton(withTitle: "Import")
+        importButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        saveAllPositions()
+        configManager.saveImmediately()
+        closeAllDockPanels()
+        configManager.config = imported
+        configManager.saveImmediately()
+        restoreDocks()
+        rebuildMenu()
+    }
+
+    private func showConfigurationFileError(title: String, error: Error) {
+        let alert = NSAlert(error: error)
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.runModal()
     }
 
     private func scheduleMenuRefresh() {
