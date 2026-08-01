@@ -2,14 +2,9 @@ import Cocoa
 import SwiftUI
 
 @MainActor
-final class PreferencesWindowController: NSWindowController,
-    NSWindowDelegate, NSToolbarDelegate
-{
+final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
     private let store: DockPreferencesStore
     private var permissionRefreshTimer: Timer?
-    private let searchToolbarItem = NSSearchToolbarItem(
-        itemIdentifier: NSToolbarItem.Identifier("FreeDockSettingsSearch")
-    )
 
     init(store: DockPreferencesStore) {
         self.store = store
@@ -27,21 +22,13 @@ final class PreferencesWindowController: NSWindowController,
         )
         window.center()
         window.setFrameAutosaveName("FreeDockPreferencesWindow")
-        let toolbar = NSToolbar(identifier: "FreeDockPreferencesToolbar")
-        toolbar.displayMode = .iconOnly
-        searchToolbarItem.searchField.placeholderString = "Search Settings"
-        searchToolbarItem.searchField.setAccessibilityLabel(
-            "Search FreeDock settings"
-        )
-        window.toolbar = toolbar
         super.init(window: window)
-        toolbar.delegate = self
         window.delegate = self
-        searchToolbarItem.searchField.target = self
-        searchToolbarItem.searchField.action = #selector(searchChanged(_:))
-        window.onFind = { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self.searchToolbarItem.searchField)
+        window.onFind = {
+            NotificationCenter.default.post(
+                name: .freeDockFocusSettingsSearch,
+                object: nil
+            )
         }
         window.onUndo = { [weak self] in
             self?.store.perform(.undo)
@@ -104,31 +91,6 @@ final class PreferencesWindowController: NSWindowController,
         store.refreshPermissions()
     }
 
-    @objc private func searchChanged(_ sender: NSSearchField) {
-        store.settingsSearchText = sender.stringValue
-    }
-
-    func toolbarDefaultItemIdentifiers(
-        _: NSToolbar
-    ) -> [NSToolbarItem.Identifier] {
-        [searchToolbarItem.itemIdentifier]
-    }
-
-    func toolbarAllowedItemIdentifiers(
-        _: NSToolbar
-    ) -> [NSToolbarItem.Identifier] {
-        [searchToolbarItem.itemIdentifier, .flexibleSpace]
-    }
-
-    func toolbar(
-        _: NSToolbar,
-        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-        willBeInsertedIntoToolbar _: Bool
-    ) -> NSToolbarItem? {
-        itemIdentifier == searchToolbarItem.itemIdentifier
-            ? searchToolbarItem
-            : nil
-    }
 }
 
 private final class PreferencesWindow: NSWindow {

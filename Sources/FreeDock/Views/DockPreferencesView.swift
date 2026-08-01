@@ -1,9 +1,16 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let freeDockFocusSettingsSearch = Notification.Name(
+        "FreeDockFocusSettingsSearch"
+    )
+}
+
 struct DockPreferencesView: View {
     @ObservedObject var store: DockPreferencesStore
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @FocusState private var isSettingsSearchFocused: Bool
 
     var body: some View {
         HSplitView {
@@ -27,11 +34,55 @@ struct DockPreferencesView: View {
             store.refreshPermissions()
             store.refreshLaunchAtLogin()
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .freeDockFocusSettingsSearch
+            )
+        ) { _ in
+            isSettingsSearchFocused = true
+        }
     }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             profileHeader
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField(
+                    "Search Settings",
+                    text: $store.settingsSearchText
+                )
+                .textFieldStyle(.plain)
+                .focused($isSettingsSearchFocused)
+                .accessibilityLabel("Search FreeDock settings")
+
+                if !store.settingsSearchText.isEmpty {
+                    Button {
+                        store.settingsSearchText = ""
+                        isSettingsSearchFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear settings search")
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
 
             Divider()
 
