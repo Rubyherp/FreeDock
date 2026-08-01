@@ -91,6 +91,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
     var kind: DockItemKind
     var folderOptions: FolderStackOptions?
     var smartStackSource: SmartStackSource?
+    var customIconData: Data?
 
     /// Source compatibility for code and configs created before typed dock items.
     var appPath: String {
@@ -109,7 +110,8 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         path: String,
         label: String? = nil,
         folderOptions: FolderStackOptions? = nil,
-        smartStackSource: SmartStackSource? = nil
+        smartStackSource: SmartStackSource? = nil,
+        customIconData: Data? = nil
     ) {
         self.id = id
         self.kind = smartStackSource == nil ? kind : .folder
@@ -117,6 +119,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             || smartStackSource != nil ? "" : path
         self.label = label ?? smartStackSource?.defaultLabel
         self.smartStackSource = smartStackSource
+        self.customIconData = customIconData
         self.folderOptions = self.kind == .folder
             ? (
                 folderOptions
@@ -279,7 +282,8 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             path: path,
             label: label,
             folderOptions: folderOptions,
-            smartStackSource: smartStackSource
+            smartStackSource: smartStackSource,
+            customIconData: customIconData
         )
     }
 
@@ -315,6 +319,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         case kind
         case folderOptions
         case smartStackSource
+        case customIconData
         case isSeparator
     }
 
@@ -344,6 +349,10 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
         label =
             (try? container.decode(String.self, forKey: .label))
             ?? smartStackSource?.defaultLabel
+        customIconData = try? container.decode(
+            Data.self,
+            forKey: .customIconData
+        )
 
         if kind == .folder {
             folderOptions =
@@ -368,6 +377,7 @@ struct DockItem: Codable, Identifiable, Equatable, Sendable {
             smartStackSource,
             forKey: .smartStackSource
         )
+        try container.encodeIfPresent(customIconData, forKey: .customIconData)
         try container.encode(isSeparator, forKey: .isSeparator)
     }
 }

@@ -52,7 +52,9 @@ struct DockItemPresentation {
             : resolvedName
 
         let icon: NSImage
-        if isAvailable {
+        if let customIcon = customIcon(for: item) {
+            icon = customIcon
+        } else if isAvailable {
             icon = (NSWorkspace.shared.icon(forFile: path).copy() as? NSImage)
                 ?? NSWorkspace.shared.icon(forFile: path)
         } else {
@@ -87,11 +89,11 @@ struct DockItemPresentation {
 
         switch source {
         case .recentFiles:
-            let icon = systemIcon(
-                preferredName: "clock.fill",
-                fallbackName: "clock",
-                accessibilityDescription: displayName
-            )
+            let icon = customIcon(for: item) ?? systemIcon(
+                    preferredName: "clock.fill",
+                    fallbackName: "clock",
+                    accessibilityDescription: displayName
+                )
             icon.size = NSSize(width: 64, height: 64)
             return DockItemPresentation(
                 displayName: displayName,
@@ -111,7 +113,9 @@ struct DockItemPresentation {
                 FileManager.default.fileExists(atPath: $0.path)
             } ?? false
             let icon: NSImage
-            if let downloadsURL, isAvailable {
+            if let customIcon = customIcon(for: item) {
+                icon = customIcon
+            } else if let downloadsURL, isAvailable {
                 let workspaceIcon = NSWorkspace.shared.icon(
                     forFile: downloadsURL.path
                 )
@@ -150,6 +154,13 @@ struct DockItemPresentation {
                 accessibilityDescription: accessibilityDescription
             )
             ?? NSImage()
+    }
+
+    private static func customIcon(for item: DockItem) -> NSImage? {
+        guard let data = item.customIconData,
+              let image = NSImage(data: data)
+        else { return nil }
+        return (image.copy() as? NSImage) ?? image
     }
 }
 

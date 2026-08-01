@@ -47,7 +47,8 @@ func typedDockItemsRoundTrip() throws {
         DockItem(
             kind: .application,
             path: "/Applications/FreeDock.app",
-            label: "FreeDock"
+            label: "FreeDock",
+            customIconData: Data([0, 1, 2, 3])
         ),
         DockItem(
             kind: .document,
@@ -75,6 +76,8 @@ func typedDockItemsRoundTrip() throws {
     #expect(objects.allSatisfy { $0["appPath"] != nil })
     #expect(objects.allSatisfy { $0["isSeparator"] != nil })
     #expect(objects[2]["kind"] as? String == "folder")
+    #expect(decoded[0].customIconData == Data([0, 1, 2, 3]))
+    #expect(objects[0]["customIconData"] != nil)
 }
 
 @Test("Unknown item and folder option values migrate tolerantly")
@@ -160,7 +163,12 @@ func typedDockItemDuplication() {
     let original = DockConfig(
         name: "Files",
         items: [
-            DockItem(kind: .document, path: "/tmp/Brief.pdf", label: "Brief"),
+            DockItem(
+                kind: .document,
+                path: "/tmp/Brief.pdf",
+                label: "Brief",
+                customIconData: Data([4, 5, 6])
+            ),
             DockItem(
                 kind: .folder,
                 path: "/tmp/Project",
@@ -177,6 +185,10 @@ func typedDockItemDuplication() {
     #expect(duplicate.items.map(\.kind) == original.items.map(\.kind))
     #expect(duplicate.items.map(\.path) == original.items.map(\.path))
     #expect(duplicate.items.map(\.label) == original.items.map(\.label))
+    #expect(
+        duplicate.items.map(\.customIconData)
+            == original.items.map(\.customIconData)
+    )
     #expect(
         duplicate.items.map(\.folderOptions)
             == original.items.map(\.folderOptions)

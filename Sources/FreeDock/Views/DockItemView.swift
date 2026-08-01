@@ -31,6 +31,9 @@ struct DockItemView: View {
     let onOpenDocumentWithApplication: (URL) -> Void
     let onChooseFilesForApplication: () -> Void
     let onEmptyTrashRequested: () -> Void
+    let onRenameRequested: () -> Void
+    let onChooseCustomIconRequested: () -> Void
+    let onRestoreOriginalIconRequested: () -> Void
     let onApplicationHoverChanged: (Bool, NSRect) -> Void
     let onShowApplicationWindows: (NSRect) -> Void
     let onEnableWindowThumbnails: () -> Void
@@ -220,6 +223,17 @@ struct DockItemView: View {
             Button("Show in Finder") { showInFinder() }
                 .disabled(!resolvedPresentation.isAvailable)
             Button("Copy Path") { copyPath() }
+        }
+        if !isTransientApplication, item.kind != .trash {
+            Divider()
+            Button("Rename…", action: onRenameRequested)
+            Button("Choose Custom Icon…", action: onChooseCustomIconRequested)
+            if item.customIconData != nil {
+                Button(
+                    "Restore Original Icon",
+                    action: onRestoreOriginalIconRequested
+                )
+            }
         }
         Divider()
         if isTransientApplication {

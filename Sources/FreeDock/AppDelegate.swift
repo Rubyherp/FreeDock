@@ -1820,6 +1820,87 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPreferencesSnapshot()
     }
 
+    private func promptToRenameDockItem(
+        _ item: DockItem,
+        in dockID: UUID
+    ) {
+        guard item.kind != .separator, item.kind != .trash else { return }
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = "Rename Dock Item"
+        alert.informativeText = "Enter a custom label, or leave it empty to use the original name."
+        let field = NSTextField(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 24)
+        )
+        field.stringValue = DockItemPresentation.resolve(item).displayName
+        field.selectText(nil)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        var updatedItems = configManager.config.docks.first(where: {
+            $0.id == dockID
+        })?.items ?? []
+        guard let index = updatedItems.firstIndex(where: {
+            $0.id == item.id
+        }) else { return }
+        let label = field.stringValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        updatedItems[index].label = label.isEmpty ? nil : label
+        replaceDockItems(updatedItems, for: dockID)
+    }
+
+    private func chooseCustomIcon(
+        for item: DockItem,
+        in dockID: UUID
+    ) {
+        guard item.kind != .separator, item.kind != .trash else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Icon for \(DockItemPresentation.resolve(item).displayName)"
+        panel.prompt = "Choose Icon"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let iconData = DockItemIconEncoder.encodeImage(at: url)
+        else {
+            if panel.url != nil {
+                showCustomIconError()
+            }
+            return
+        }
+        updateCustomIcon(iconData, for: item.id, in: dockID)
+    }
+
+    private func updateCustomIcon(
+        _ data: Data?,
+        for itemID: DockItem.ID,
+        in dockID: UUID
+    ) {
+        var updatedItems = configManager.config.docks.first(where: {
+            $0.id == dockID
+        })?.items ?? []
+        guard let index = updatedItems.firstIndex(where: {
+            $0.id == itemID
+        }) else { return }
+        updatedItems[index].customIconData = data
+        replaceDockItems(updatedItems, for: dockID)
+    }
+
+    private func showCustomIconError() {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Icon Couldn’t Be Used"
+        alert.informativeText = "Choose a valid image smaller than 10 MB. FreeDock stores a portable optimized copy in its configuration."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func transferDockItem(
         _ session: DockItemDragSession,
         to targetDockID: UUID,
@@ -2903,6 +2984,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onEmptyTrashRequested: { [weak self] in
                 self?.confirmAndEmptyTrash()
+            },
+            onRenameItemRequested: { [weak self] item in
+                self?.promptToRenameDockItem(item, in: dockID)
+            },
+            onChooseCustomIconRequested: { [weak self] item in
+                self?.chooseCustomIcon(for: item, in: dockID)
+            },
+            onRestoreOriginalIconRequested: { [weak self] item in
+                self?.updateCustomIcon(nil, for: item.id, in: dockID)
             },
             onApplicationHoverChanged: {
                 [weak self, weak panel] item, sourceRect, hovering in

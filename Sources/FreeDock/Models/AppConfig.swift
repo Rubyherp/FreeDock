@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 7
+    static let currentFormatVersion = 8
 
     var profiles: [DockProfile]
     var activeProfileID: UUID

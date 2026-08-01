@@ -42,6 +42,9 @@ struct DockContentView: View {
     let onCanMoveFilesToTrash: @MainActor ([URL]) -> Bool
     let onMoveFilesToTrash: @MainActor ([URL]) -> Bool
     let onEmptyTrashRequested: @MainActor () -> Void
+    let onRenameItemRequested: @MainActor (DockItem) -> Void
+    let onChooseCustomIconRequested: @MainActor (DockItem) -> Void
+    let onRestoreOriginalIconRequested: @MainActor (DockItem) -> Void
     let onApplicationHoverChanged: @MainActor (
         DockItem,
         NSRect,
@@ -645,6 +648,13 @@ struct DockContentView: View {
                 onChooseFilesForApplication(item)
             },
             onEmptyTrashRequested: onEmptyTrashRequested,
+            onRenameRequested: { onRenameItemRequested(item) },
+            onChooseCustomIconRequested: {
+                onChooseCustomIconRequested(item)
+            },
+            onRestoreOriginalIconRequested: {
+                onRestoreOriginalIconRequested(item)
+            },
             onApplicationHoverChanged: { hovering, screenRect in
                 onApplicationHoverChanged(
                     item,

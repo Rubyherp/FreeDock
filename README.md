@@ -59,6 +59,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
 - **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
+- **Custom item labels and icons** — Rename pinned items and embed optimized custom artwork that stays portable with configuration backups
 - **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
 - **Smart stacks** — Add Recent Files and Downloads without pinning fixed paths; Recent Files tracks successful document opens through FreeDock, while Downloads resolves for the current user
 - **Native Trash** — Add Trash to any dock, drop Finder items onto it to recycle them, and empty it from the right-click menu after confirmation
@@ -127,7 +128,8 @@ make run
 10. Hover over the app or choose **Show Windows…** to see its windows across desktops, then select one to bring it forward
 11. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
 12. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
-13. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
+13. Right-click a pinned item to rename it, choose a custom icon, or restore its original icon
+14. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
 
@@ -143,11 +145,11 @@ make run
 
 ## Configuration
 
-Docks, profiles, appearance themes, shortcuts, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 7 adds saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
+Docks, profiles, appearance themes, shortcuts, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 8 adds portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 7,
+  "formatVersion": 8,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
   "recentFiles": [
     {
