@@ -31,10 +31,6 @@
   <a href="https://www.buymeacoffee.com/thksalot"><strong>Support the project</strong></a>
 </p>
 
-FreeDock is a free and open-source alternative for people who want more than one macOS Dock. Keep a compact launcher on each display, separate work and personal apps into profiles, pin files and folders beside applications, or build a focused dock for one project.
-
-It is written in SwiftUI and AppKit, stores its configuration locally, and does not require an account or subscription.
-
 ## Support FreeDock
 
 FreeDock is MIT-licensed and every feature remains free. If the project is useful to you, you can support its continued development and the creator’s education.
@@ -46,6 +42,11 @@ FreeDock is MIT-licensed and every feature remains free. If the project is usefu
   <br>
   <a href="https://www.buymeacoffee.com/thksalot"><strong>Buy me a coffee</strong></a>
 </p>
+
+
+FreeDock is a free and open-source alternative for people who want more than one macOS Dock. Keep a compact launcher on each display, separate work and personal apps into profiles, pin files and folders beside applications, or build a focused dock for one project.
+
+It is written in SwiftUI and AppKit, stores its configuration locally, and does not require an account or subscription.
 
 ## Preview
 
