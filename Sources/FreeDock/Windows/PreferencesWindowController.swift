@@ -2,13 +2,18 @@ import Cocoa
 import SwiftUI
 
 @MainActor
-final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
+final class PreferencesWindowController: NSWindowController,
+    NSWindowDelegate, NSToolbarDelegate
+{
     private let store: DockPreferencesStore
     private var permissionRefreshTimer: Timer?
+    private let searchToolbarItem = NSSearchToolbarItem(
+        itemIdentifier: NSToolbarItem.Identifier("FreeDockSettingsSearch")
+    )
 
     init(store: DockPreferencesStore) {
         self.store = store
-        let window = NSWindow(
+        let window = PreferencesWindow(
             contentRect: NSRect(x: 0, y: 0, width: 780, height: 570),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -22,8 +27,25 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         )
         window.center()
         window.setFrameAutosaveName("FreeDockPreferencesWindow")
+        let toolbar = NSToolbar(identifier: "FreeDockPreferencesToolbar")
+        toolbar.displayMode = .iconOnly
+        searchToolbarItem.searchField.placeholderString = "Search Settings"
+        searchToolbarItem.searchField.setAccessibilityLabel(
+            "Search FreeDock settings"
+        )
+        window.toolbar = toolbar
         super.init(window: window)
+        toolbar.delegate = self
         window.delegate = self
+        searchToolbarItem.searchField.target = self
+        searchToolbarItem.searchField.action = #selector(searchChanged(_:))
+        window.onFind = { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.searchToolbarItem.searchField)
+        }
+        window.onUndo = { [weak self] in
+            self?.store.perform(.undo)
+        }
     }
 
     @available(*, unavailable)
@@ -80,5 +102,55 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func refreshPermissionStatus() {
         store.refreshPermissions()
+    }
+
+    @objc private func searchChanged(_ sender: NSSearchField) {
+        store.settingsSearchText = sender.stringValue
+    }
+
+    func toolbarDefaultItemIdentifiers(
+        _: NSToolbar
+    ) -> [NSToolbarItem.Identifier] {
+        [searchToolbarItem.itemIdentifier]
+    }
+
+    func toolbarAllowedItemIdentifiers(
+        _: NSToolbar
+    ) -> [NSToolbarItem.Identifier] {
+        [searchToolbarItem.itemIdentifier, .flexibleSpace]
+    }
+
+    func toolbar(
+        _: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar _: Bool
+    ) -> NSToolbarItem? {
+        itemIdentifier == searchToolbarItem.itemIdentifier
+            ? searchToolbarItem
+            : nil
+    }
+}
+
+private final class PreferencesWindow: NSWindow {
+    var onFind: (() -> Void)?
+    var onUndo: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(
+            .deviceIndependentFlagsMask
+        )
+        if modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "f"
+        {
+            onFind?()
+            return true
+        }
+        if modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "z"
+        {
+            onUndo?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

@@ -61,7 +61,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Session undo** — Recover deleted profiles, docks, themes, recent-file history, and pinned items—including items dropped onto Trash—with `⌘Z`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Saved appearance themes** — Capture a dock’s style, opacity, blur, corners, and shadow, then reuse it across docks and profiles
-- **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls
+- **Native accessibility** — Honors Reduce Motion and Increased Contrast, adds shape-backed running indicators, grouped VoiceOver settings and dock-item actions, and keyboard routes for search (`⌘F`) and undo (`⌘Z`)
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
 - **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
 - **Custom item labels and icons** — Rename pinned items and embed optimized custom artwork that stays portable with configuration backups

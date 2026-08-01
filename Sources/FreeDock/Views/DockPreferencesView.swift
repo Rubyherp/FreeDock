@@ -3,7 +3,7 @@ import SwiftUI
 
 struct DockPreferencesView: View {
     @ObservedObject var store: DockPreferencesStore
-    @State private var settingsSearchText = ""
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         HSplitView {
@@ -32,12 +32,6 @@ struct DockPreferencesView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             profileHeader
-
-            TextField("Search Settings", text: $settingsSearchText)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-                .accessibilityLabel("Search FreeDock settings")
 
             Divider()
 
@@ -181,6 +175,17 @@ struct DockPreferencesView: View {
                     .contextMenu {
                         dockActions(for: dock.id)
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(dock.name)
+                    .accessibilityValue(
+                        dock.id == store.selectedDockID
+                            ? "\(dockSubtitle(for: dock)), selected"
+                            : dockSubtitle(for: dock)
+                    )
+                    .accessibilityHint("Selects this dock for editing.")
+                    .accessibilityAddTraits(
+                        dock.id == store.selectedDockID ? .isSelected : []
+                    )
                 }
             }
             .listStyle(.sidebar)
@@ -261,9 +266,9 @@ struct DockPreferencesView: View {
         if let dock = store.selectedDock {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if !settingsSearchText.isEmpty {
+                    if !store.settingsSearchText.isEmpty {
                         Label(
-                            "Settings matching “\(settingsSearchText)”",
+                            "Settings matching “\(store.settingsSearchText)”",
                             systemImage: "magnifyingglass"
                         )
                         .font(.callout)
@@ -683,9 +688,9 @@ struct DockPreferencesView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    if !settingsSearchText.isEmpty {
+                    if !store.settingsSearchText.isEmpty {
                         Label(
-                            "Settings matching “\(settingsSearchText)”",
+                            "Settings matching “\(store.settingsSearchText)”",
                             systemImage: "magnifyingglass"
                         )
                         .font(.callout)
@@ -1218,7 +1223,7 @@ struct DockPreferencesView: View {
     ) -> some View {
         Group {
             if PreferencesSearchMatcher.matches(
-                query: settingsSearchText,
+                query: store.settingsSearchText,
                 text: title + " " + searchKeywords(for: title)
             ) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -1236,9 +1241,20 @@ struct DockPreferencesView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
+                            .strokeBorder(
+                                Color.primary.opacity(
+                                    colorSchemeContrast == .increased
+                                        ? 0.32
+                                        : 0.09
+                                ),
+                                lineWidth: colorSchemeContrast == .increased
+                                    ? 1.5
+                                    : 1
+                            )
                     )
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(title) settings")
             }
         }
     }

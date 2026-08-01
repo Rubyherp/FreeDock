@@ -36,7 +36,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 
 ## Quality bar
 
-- VoiceOver, keyboard navigation, and reduced-motion support
+- VoiceOver actions and grouping, keyboard navigation, increased-contrast visuals, and reduced-motion support
 - Predictable multi-display behavior and safe config migrations
 - Signed, notarized releases and an opt-in update path
 - Small, focused issues that welcome first-time contributors

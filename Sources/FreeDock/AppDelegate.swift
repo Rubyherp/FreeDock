@@ -607,6 +607,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleDockManagementAction(_ action: DockManagementAction) {
         switch action {
+        case .undo:
+            performUndo()
         case .exportConfiguration:
             exportConfiguration()
         case .importConfiguration:

@@ -19,6 +19,7 @@ enum DockPreferenceChange: Equatable {
 }
 
 enum DockManagementAction: Equatable {
+    case undo
     case exportConfiguration
     case importConfiguration
     case exportActiveProfile
@@ -98,6 +99,7 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var themes: [DockTheme]
     @Published private(set) var shortcutError: String?
     @Published var selectedDockID: UUID?
+    @Published var settingsSearchText = ""
 
     private let onChange: (UUID, DockPreferenceChange) -> Void
     private let onManagementAction: (DockManagementAction) -> Void
