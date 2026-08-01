@@ -159,11 +159,15 @@ struct DockContentView: View {
                 reconcileQuickLaunchSelection()
             }
             .onChange(of: itemDragCoordinator.contentRevision) { _ in
-                withAnimation(.spring(
-                    response: 0.3,
-                    dampingFraction: 0.74
-                )) {
+                if reduceMotion {
                     displayedItems = items
+                } else {
+                    withAnimation(.spring(
+                        response: 0.3,
+                        dampingFraction: 0.74
+                    )) {
+                        displayedItems = items
+                    }
                 }
                 reconcileQuickLaunchSelection()
             }
@@ -227,6 +231,15 @@ struct DockContentView: View {
                             resizableItemCount: resizableItemCount
                         )
                         .frame(width: 18)
+                        .help("Drag to resize this dock")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Resize \(state.name) dock")
+                        .accessibilityValue(
+                            "\(Int(iconSize.rounded())) pixel icons"
+                        )
+                        .accessibilityHint(
+                            "Drag horizontally to change icon size."
+                        )
                     }
                 }
                 .padding(.top, magnificationHeadroom)
@@ -247,6 +260,15 @@ struct DockContentView: View {
                             resizableItemCount: resizableItemCount
                         )
                         .frame(height: 18)
+                        .help("Drag to resize this dock")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Resize \(state.name) dock")
+                        .accessibilityValue(
+                            "\(Int(iconSize.rounded())) pixel icons"
+                        )
+                        .accessibilityHint(
+                            "Drag vertically to change icon size."
+                        )
                     }
                 }
                 .padding(.horizontal, magnificationHeadroom * 0.52)
@@ -262,7 +284,11 @@ struct DockContentView: View {
             )
             .frame(width: 16, height: iconSize + 11)
             .help("Drag to move this dock")
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Move \(state.name) dock")
+            .accessibilityHint(
+                "Drag to reposition the dock on this display."
+            )
         } else {
             DockDragHandleRepresentable(
                 panel: panel,
@@ -270,7 +296,11 @@ struct DockContentView: View {
             )
             .frame(width: iconSize + 11, height: 16)
             .help("Drag to move this dock")
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Move \(state.name) dock")
+            .accessibilityHint(
+                "Drag to reposition the dock on this display."
+            )
         }
     }
 
@@ -1072,8 +1102,12 @@ struct DockContentView: View {
                 }
             }
         } else {
-            withAnimation(.easeOut(duration: 0.12)) {
+            if reduceMotion {
                 dropPulse = false
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) {
+                    dropPulse = false
+                }
             }
         }
     }
@@ -1523,7 +1557,11 @@ struct DockContentView: View {
     private func removeItem(_ item: DockItem) {
         var updatedItems = displayedItems ?? items
         updatedItems.removeAll(where: { $0.id == item.id })
-        withAnimation { displayedItems = updatedItems }
+        if reduceMotion {
+            displayedItems = updatedItems
+        } else {
+            withAnimation { displayedItems = updatedItems }
+        }
         items = updatedItems
     }
 

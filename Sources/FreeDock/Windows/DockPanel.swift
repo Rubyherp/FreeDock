@@ -47,6 +47,10 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private let edgeTolerance: CGFloat = 2
     private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
 
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     override var canBecomeKey: Bool { quickLaunchKeyModeEnabled }
     override var canBecomeMain: Bool { false }
 
@@ -253,13 +257,26 @@ class DockPanel: NSPanel, NSWindowDelegate {
             self.dockContainer?.showRevealIndicator(at: self.revealEdge(for: edge))
             self.hostingView?.alphaValue = 0
             self.hostingView?.isHidden = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.24
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                self.animator().setFrame(
-                    self.hiddenFrame(for: restingFrame, at: edge, in: visibleFrame),
-                    display: true
-                )
+            let hiddenFrame = self.hiddenFrame(
+                for: restingFrame,
+                at: edge,
+                in: visibleFrame
+            )
+            if DockMotionPolicy.shouldAnimate(
+                reduceMotion: self.reduceMotion
+            ) {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = DockMotionPolicy.duration(
+                        0.24,
+                        reduceMotion: self.reduceMotion
+                    )
+                    context.timingFunction = CAMediaTimingFunction(
+                        name: .easeInEaseOut
+                    )
+                    self.animator().setFrame(hiddenFrame, display: true)
+                }
+            } else {
+                self.setFrame(hiddenFrame, display: true)
             }
         }
 
@@ -278,9 +295,20 @@ class DockPanel: NSPanel, NSWindowDelegate {
         isAutoHideRevealInProgress = true
         revealCompletionWorkItem?.cancel()
         hostingView?.isHidden = false
+        if reduceMotion {
+            hostingView?.alphaValue = 1
+            setFrame(restingFrame, display: true)
+            isAutoHideRevealInProgress = false
+            dockContainer?.hideRevealIndicator()
+            return
+        }
+
         hostingView?.alphaValue = 0
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.28
+            context.duration = DockMotionPolicy.duration(
+                0.28,
+                reduceMotion: self.reduceMotion
+            )
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.hostingView?.animator().alphaValue = 1
             self.animator().setFrame(restingFrame, display: true)

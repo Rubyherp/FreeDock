@@ -54,6 +54,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Quick Launch** — Press `⌘⇧Space`, type to search the nearest dock, choose with arrows or Tab, and press Return to open
 - **Global shortcuts** — Show or hide the active profile with `⌃⌥Space`, or switch profiles with `⌃⌥1…9`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
+- **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls
 - **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
 - **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
 - **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files

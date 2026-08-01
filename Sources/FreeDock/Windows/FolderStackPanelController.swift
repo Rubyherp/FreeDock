@@ -107,12 +107,21 @@ final class FolderStackPanelController: NSObject, NSWindowDelegate {
         sourceDock.addChildWindow(panel, ordered: .above)
         installEventMonitors()
 
-        panel.alphaValue = 0
+        let reduceMotion = NSWorkspace.shared
+            .accessibilityDisplayShouldReduceMotion
+        panel.alphaValue = reduceMotion ? 1 : 0
         panel.makeKeyAndOrderFront(nil)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
+        if DockMotionPolicy.shouldAnimate(reduceMotion: reduceMotion) {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = DockMotionPolicy.duration(
+                    0.14,
+                    reduceMotion: reduceMotion
+                )
+                context.timingFunction = CAMediaTimingFunction(
+                    name: .easeOut
+                )
+                panel.animator().alphaValue = 1
+            }
         }
     }
 
