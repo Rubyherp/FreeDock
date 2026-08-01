@@ -12,6 +12,8 @@ enum DockPreferenceChange: Equatable {
     case cornerRadius(Double)
     case shadowStrength(Double)
     case showRunningIndicators(Bool)
+    case showDynamicApplications(Bool)
+    case dynamicApplicationLimit(Int)
     case autoHideWhenDocked(Bool)
     case autoHideDelay(Double)
 }
@@ -61,6 +63,10 @@ extension DockConfig {
             shadowStrength = Self.clamp(value, to: Self.shadowStrengthRange)
         case let .showRunningIndicators(value):
             showRunningIndicators = value
+        case let .showDynamicApplications(value):
+            showDynamicApplications = value
+        case let .dynamicApplicationLimit(value):
+            dynamicApplicationLimit = min(max(value, 1), 10)
         case let .autoHideWhenDocked(value):
             autoHideWhenDocked = value
         case let .autoHideDelay(value):

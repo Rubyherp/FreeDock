@@ -10,6 +10,7 @@ struct DockContentView: View {
     let orientation: Orientation
     @ObservedObject var state: DockState
     @ObservedObject var itemDragCoordinator: DockItemDragCoordinator
+    @ObservedObject private var applicationMonitor = RunningAppMonitor.shared
     let onItemActivation: @MainActor (DockItem, NSRect) -> Void
     let onItemTransfer: @MainActor (
         DockItemDragSession,
@@ -76,18 +77,23 @@ struct DockContentView: View {
     @State private var externalFileDropExpiryWorkItem: DispatchWorkItem?
     @State private var quickLaunchQuery = ""
     @State private var quickLaunchSelection = QuickLaunchSelection()
+    @State private var dynamicApplicationItems: [DockItem] = []
 
     private var currentItems: [DockItem] {
         displayedItems ?? items
     }
 
+    private var presentedItems: [DockItem] {
+        currentItems + dynamicApplicationItems
+    }
+
     private var resizableItemCount: Int {
-        DockResizeGestureMath.resizableItemCount(in: currentItems)
+        DockResizeGestureMath.resizableItemCount(in: presentedItems)
     }
 
     private var quickLaunchResults: [QuickLaunchSearchResult] {
         QuickLaunchSearch.results(
-            in: currentItems,
+            in: presentedItems,
             matching: quickLaunchQuery
         )
     }
@@ -150,12 +156,14 @@ struct DockContentView: View {
             }
             .onAppear {
                 displayedItems = items
+                refreshDynamicApplications(pinnedItems: items)
                 if state.isQuickLaunchPresented {
                     resetQuickLaunch()
                 }
             }
             .onChange(of: items) {
                 displayedItems = $0
+                refreshDynamicApplications(pinnedItems: $0)
                 reconcileQuickLaunchSelection()
             }
             .onChange(of: itemDragCoordinator.contentRevision) { _ in
@@ -170,6 +178,18 @@ struct DockContentView: View {
                     }
                 }
                 reconcileQuickLaunchSelection()
+            }
+            .onChange(of: applicationMonitor.recentApplications) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: applicationMonitor.runningBundleIDs) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: state.showDynamicApplications) { _ in
+                refreshDynamicApplications()
+            }
+            .onChange(of: state.dynamicApplicationLimit) { _ in
+                refreshDynamicApplications()
             }
             .onChange(of: state.quickLaunchFocusGeneration) { _ in
                 resetQuickLaunch()
@@ -371,7 +391,7 @@ struct DockContentView: View {
                 VStack(spacing: state.itemSpacing) { content }
             }
 
-            if quickLaunchResults.isEmpty, !currentItems.isEmpty {
+            if quickLaunchResults.isEmpty, !presentedItems.isEmpty {
                 Text(
                     quickLaunchQuery.isEmpty
                         ? "No launchable items"
@@ -466,7 +486,7 @@ struct DockContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if currentItems.isEmpty {
+        if presentedItems.isEmpty {
             Label("Drop apps, files, or folders", systemImage: "plus.circle.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(chromeColor.opacity(0.65))
@@ -503,6 +523,28 @@ struct DockContentView: View {
                     separatorCell(item)
                 } else {
                     dockItemCell(item, at: index)
+                }
+            }
+
+            if !dynamicApplicationItems.isEmpty {
+                if !currentItems.isEmpty {
+                    DockSeparatorView(
+                        orientation: orientation,
+                        iconSize: iconSize,
+                        color: chromeColor
+                    )
+                    .accessibilityLabel("Recent and running applications")
+                }
+
+                ForEach(
+                    Array(dynamicApplicationItems.enumerated()),
+                    id: \.element.id
+                ) { offset, item in
+                    dockItemCell(
+                        item,
+                        at: currentItems.count + offset,
+                        isTransientApplication: true
+                    )
                 }
             }
 
@@ -570,16 +612,24 @@ struct DockContentView: View {
     @ViewBuilder
     private func dockItemCell(
         _ item: DockItem,
-        at index: Int
+        at index: Int,
+        isTransientApplication: Bool = false
     ) -> some View {
         let cell = DockItemView(
             item: item,
             iconSize: iconSize,
-            scale: scale(for: index, in: currentItems),
+            scale: scale(for: index, in: presentedItems),
             onActivate: { screenRect in
                 onItemActivation(item, screenRect)
             },
             onRemove: { removeItem(item) },
+            isTransientApplication: isTransientApplication,
+            onKeepInDock: {
+                guard isTransientApplication else { return }
+                var updated = displayedItems ?? items
+                updated.append(item)
+                commitItems(updated)
+            },
             onFolderOptionsChanged: { options in
                 onFolderOptionsChanged(item.id, options)
             },
@@ -647,7 +697,10 @@ struct DockContentView: View {
             value: selectedQuickLaunchItemID
         )
 
-        let interactiveCell = cell
+        if isTransientApplication {
+            applicationFileDropTarget(cell, for: item)
+        } else {
+            let interactiveCell = cell
             .onDrag {
                 dragProvider(for: item)
             } preview: {
@@ -666,7 +719,31 @@ struct DockContentView: View {
                 )
             )
 
-        applicationFileDropTarget(interactiveCell, for: item)
+            applicationFileDropTarget(interactiveCell, for: item)
+        }
+    }
+
+    private func refreshDynamicApplications(
+        pinnedItems: [DockItem]? = nil
+    ) {
+        let updated: [DockItem] = if state.showDynamicApplications {
+            DynamicApplicationSectionPlanner.items(
+                records: applicationMonitor.recentApplications,
+                runningBundleIDs: applicationMonitor.runningBundleIDs,
+                pinnedItems: pinnedItems ?? currentItems,
+                limit: state.dynamicApplicationLimit
+            )
+        } else {
+            []
+        }
+        let needsResize = updated.count != dynamicApplicationItems.count
+        dynamicApplicationItems = updated
+        if needsResize {
+            DispatchQueue.main.async {
+                panel.resizeToFitContent()
+            }
+        }
+        reconcileQuickLaunchSelection()
     }
 
     @ViewBuilder

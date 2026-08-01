@@ -1,17 +1,19 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 5
+    static let currentFormatVersion = 6
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
     var recentFiles: [RecentFileRecord]
     var globalShortcuts: GlobalShortcutSettings
+    var recentApplications: [RecentApplicationRecord]
 
     init(
         docks: [DockConfig] = [],
         recentFiles: [RecentFileRecord] = [],
-        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings()
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        recentApplications: [RecentApplicationRecord] = []
     ) {
         let profile = DockProfile(name: "Default", docks: docks)
         profiles = [profile]
@@ -21,13 +23,17 @@ struct AppConfig: Codable, Sendable {
             limit: RecentFileHistoryPlanner.maximumLimit
         )
         self.globalShortcuts = globalShortcuts
+        self.recentApplications = RecentApplicationHistoryPlanner.normalized(
+            recentApplications
+        )
     }
 
     init(
         profiles: [DockProfile],
         activeProfileID: UUID? = nil,
         recentFiles: [RecentFileRecord] = [],
-        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings()
+        globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        recentApplications: [RecentApplicationRecord] = []
     ) {
         let availableProfiles = profiles.isEmpty ? [DockProfile(name: "Default")] : profiles
         self.profiles = availableProfiles
@@ -43,6 +49,9 @@ struct AppConfig: Codable, Sendable {
             limit: RecentFileHistoryPlanner.maximumLimit
         )
         self.globalShortcuts = globalShortcuts
+        self.recentApplications = RecentApplicationHistoryPlanner.normalized(
+            recentApplications
+        )
     }
 
     var docks: [DockConfig] {
@@ -71,6 +80,7 @@ struct AppConfig: Codable, Sendable {
         case docks
         case recentFiles
         case globalShortcuts
+        case recentApplications
     }
 
     init(from decoder: Decoder) throws {
@@ -86,6 +96,12 @@ struct AppConfig: Codable, Sendable {
             GlobalShortcutSettings.self,
             forKey: .globalShortcuts
         )) ?? GlobalShortcutSettings()
+        recentApplications = RecentApplicationHistoryPlanner.normalized(
+            (try? container.decode(
+                [RecentApplicationRecord].self,
+                forKey: .recentApplications
+            )) ?? []
+        )
 
         if let decodedProfiles = try container.decodeIfPresent([DockProfile].self, forKey: .profiles),
            !decodedProfiles.isEmpty
@@ -116,5 +132,6 @@ struct AppConfig: Codable, Sendable {
         try container.encode(docks, forKey: .docks)
         try container.encode(recentFiles, forKey: .recentFiles)
         try container.encode(globalShortcuts, forKey: .globalShortcuts)
+        try container.encode(recentApplications, forKey: .recentApplications)
     }
 }

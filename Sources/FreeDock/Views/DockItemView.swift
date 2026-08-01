@@ -23,6 +23,8 @@ struct DockItemView: View {
     let scale: CGFloat
     let onActivate: (NSRect) -> Void
     let onRemove: () -> Void
+    let isTransientApplication: Bool
+    let onKeepInDock: () -> Void
     let onFolderOptionsChanged: (FolderStackOptions) -> Void
     let hasRecentFiles: () -> Bool
     let onClearRecentFilesRequested: () -> Void
@@ -213,7 +215,11 @@ struct DockItemView: View {
             Button("Copy Path") { copyPath() }
         }
         Divider()
-        Button("Remove from Dock", role: .destructive) { onRemove() }
+        if isTransientApplication {
+            Button("Keep in Dock", action: onKeepInDock)
+        } else {
+            Button("Remove from Dock", role: .destructive) { onRemove() }
+        }
     }
 
     @ViewBuilder

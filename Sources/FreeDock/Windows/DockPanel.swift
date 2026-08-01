@@ -180,9 +180,12 @@ class DockPanel: NSPanel, NSWindowDelegate {
         else { return }
 
         let isInteractiveResize = !resizeInteractionTokens.isEmpty
+        let wasAutoHidden = isAutoHidden
+        let hiddenEdge = autoHideEdge
+        let hiddenVisibleFrame = activeScreen?.visibleFrame
         let originalFrame = isInteractiveResize
             ? (resizeReferenceFrame ?? frame)
-            : frame
+            : frameForPersistence
         let preservedEdge = isInteractiveResize
             ? resizeReferenceEdge
             : resizeAnchorEdge(for: originalFrame)
@@ -196,11 +199,26 @@ class DockPanel: NSPanel, NSWindowDelegate {
             dockedEdge: preservedEdge
         )
 
-        setFrame(anchoredFrame, display: true)
         container.setFrameSize(enforcedSize)
         hosting.frame = container.bounds
-        if shownFrame != nil {
+        if wasAutoHidden,
+           let hiddenEdge,
+           let hiddenVisibleFrame
+        {
             shownFrame = anchoredFrame
+            setFrame(
+                hiddenFrame(
+                    for: anchoredFrame,
+                    at: hiddenEdge,
+                    in: hiddenVisibleFrame
+                ),
+                display: true
+            )
+        } else {
+            setFrame(anchoredFrame, display: true)
+            if shownFrame != nil {
+                shownFrame = anchoredFrame
+            }
         }
     }
 

@@ -476,6 +476,36 @@ struct DockPreferencesView: View {
                                 to: dock.items
                             ).addedCount > 0
 
+                        VStack(alignment: .leading, spacing: 5) {
+                            settingRow("Recent & running apps") {
+                                Toggle("", isOn: dynamicApplicationsBinding)
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .accessibilityLabel("Recent and running apps")
+                            }
+                            Text(
+                                "Adds unpinned running apps first, followed by apps recently observed by FreeDock. History stays local."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Divider()
+
+                        settingRow("Maximum apps") {
+                            Stepper(
+                                "\(dock.dynamicApplicationLimit)",
+                                value: dynamicApplicationLimitBinding,
+                                in: 1 ... 10
+                            )
+                            .frame(width: 90)
+                        }
+                        .disabled(!dock.showDynamicApplications)
+                        .opacity(dock.showDynamicApplications ? 1 : 0.48)
+
+                        Divider()
+
                         actionRow(
                             title: "Recent Files stack",
                             description: "Shows documents opened through FreeDock. History stays local on this Mac.",
@@ -1011,6 +1041,20 @@ struct DockPreferencesView: View {
         Binding(
             get: { store.launchAtLoginState.isEnabled },
             set: { store.setLaunchAtLoginEnabled($0) }
+        )
+    }
+
+    private var dynamicApplicationsBinding: Binding<Bool> {
+        Binding(
+            get: { store.selectedDock?.showDynamicApplications ?? false },
+            set: { store.updateSelected(.showDynamicApplications($0)) }
+        )
+    }
+
+    private var dynamicApplicationLimitBinding: Binding<Int> {
+        Binding(
+            get: { store.selectedDock?.dynamicApplicationLimit ?? 5 },
+            set: { store.updateSelected(.dynamicApplicationLimit($0)) }
         )
     }
 

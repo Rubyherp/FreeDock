@@ -82,6 +82,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = icon
         }
 
+        configureRecentApplicationTracking()
+
         restoreDocks()
         if !configManager.loadedFromDisk, configManager.config.docks.isEmpty {
             createInitialSeededDock()
@@ -514,6 +516,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         configManager.saveImmediately()
         closeAllDockPanels()
         configManager.config = imported
+        configureRecentApplicationTracking()
         configManager.saveImmediately()
         restoreDocks()
         rebuildMenu()
@@ -526,6 +529,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = error.localizedDescription
         alert.runModal()
+    }
+
+    private func configureRecentApplicationTracking() {
+        RunningAppMonitor.shared.configureRecentApplications(
+            configManager.config.recentApplications
+        ) { [weak self] records in
+            guard let self else { return }
+            self.configManager.config.recentApplications = records
+            self.configManager.save()
+        }
     }
 
     private func scheduleMenuRefresh() {
@@ -2427,6 +2440,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .orientation, .magnificationEnabled, .magnification,
              .itemSpacing, .appearance, .surfaceOpacity, .blurStyle,
              .cornerRadius, .shadowStrength, .showRunningIndicators,
+             .showDynamicApplications, .dynamicApplicationLimit,
              .autoHideDelay:
             break
         }
@@ -2451,6 +2465,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             || previous.magnification != updated.magnification
             || previous.itemSpacing != updated.itemSpacing
             || previous.items != updated.items
+            || previous.showDynamicApplications
+                != updated.showDynamicApplications
+            || previous.dynamicApplicationLimit
+                != updated.dynamicApplicationLimit
         let autoHideChanged = previous.autoHideWhenDocked != updated.autoHideWhenDocked
 
         if geometryChanged {

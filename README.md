@@ -64,6 +64,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
 - **Horizontal or vertical** — Choose the orientation that fits your workflow
 - **Running app indicators** — See which apps are currently open at a glance
+- **Recent and running apps** — Optionally append unpinned running and recently observed apps to any dock, with a configurable limit and local-only history
 - **Native window switching** — Preview a running app’s windows by title and choose one to bring it forward
 - **Native item controls** — Right-click to show, hide, or quit apps; choose how stacks are displayed and sorted; or open a document with another compatible app
 - **Open files with apps** — Drop compatible Finder files or folders directly onto a pinned application
@@ -136,15 +137,15 @@ make run
 
 **Customization:** Choose **Preferences…** from the FreeDock menu to manage window permissions, switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, or copy and reset dock settings. Changes are applied and saved immediately.
 
-**Shortcuts:** Press `⌘⇧Space` for Quick Launch. Type to narrow the pinned items in the dock nearest your pointer, use the arrow keys or Tab and Shift-Tab to move the selection, press Return to open it, or Escape to close. Press `⌃⌥Space` to show or hide every dock in the active profile. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
+**Shortcuts:** The defaults are `⌘⇧Space` for Quick Launch and `⌃⌥Space` to show or hide the active profile; both can be recorded again in Preferences. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
 
 ## Configuration
 
-Docks, profiles, shortcuts, and FreeDock’s local recent-document history are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 5 adds configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Version 3 introduced typed application, document, folder, and separator items. Older application-only and top-level dock configurations migrate automatically.
+Docks, profiles, shortcuts, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 6 adds the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 4,
+  "formatVersion": 6,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
   "recentFiles": [
     {
@@ -178,6 +179,8 @@ Docks, profiles, shortcuts, and FreeDock’s local recent-document history are s
           "blurStyle": "regular",
           "shadowStrength": 1,
           "cornerRadius": 18,
+          "showDynamicApplications": true,
+          "dynamicApplicationLimit": 5,
           "showRunningIndicators": true,
           "autoHideWhenDocked": true,
           "autoHideDelay": 1,
