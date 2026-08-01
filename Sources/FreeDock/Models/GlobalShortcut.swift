@@ -104,16 +104,48 @@ struct GlobalShortcut: Codable, Equatable, Hashable, Sendable {
     ]
 }
 
+struct ProfileShortcutAssignment: Codable, Equatable, Sendable, Identifiable {
+    var profileID: UUID
+    var shortcut: GlobalShortcut?
+
+    var id: UUID { profileID }
+}
+
 struct GlobalShortcutSettings: Codable, Equatable, Sendable {
     var showHideDocks: GlobalShortcut
     var quickLaunch: GlobalShortcut
+    private(set) var profileShortcuts: [ProfileShortcutAssignment]
 
     init(
         showHideDocks: GlobalShortcut = .defaultShowHide,
-        quickLaunch: GlobalShortcut = .defaultQuickLaunch
+        quickLaunch: GlobalShortcut = .defaultQuickLaunch,
+        profileShortcuts: [ProfileShortcutAssignment] = []
     ) {
         self.showHideDocks = showHideDocks
         self.quickLaunch = quickLaunch
+        self.profileShortcuts = profileShortcuts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case showHideDocks
+        case quickLaunch
+        case profileShortcuts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showHideDocks = try container.decode(
+            GlobalShortcut.self,
+            forKey: .showHideDocks
+        )
+        quickLaunch = try container.decode(
+            GlobalShortcut.self,
+            forKey: .quickLaunch
+        )
+        profileShortcuts = try container.decodeIfPresent(
+            [ProfileShortcutAssignment].self,
+            forKey: .profileShortcuts
+        ) ?? []
     }
 
     func shortcut(for action: GlobalShortcutAction) -> GlobalShortcut {
@@ -130,19 +162,70 @@ struct GlobalShortcutSettings: Codable, Equatable, Sendable {
         }
     }
 
-    func validationError(
-        profileShortcuts: [GlobalShortcut] = GlobalShortcutSettings.defaultProfileShortcuts
-    ) -> String? {
+    func shortcut(forProfile profileID: UUID) -> GlobalShortcut? {
+        profileShortcuts.first(where: { $0.profileID == profileID })?.shortcut
+    }
+
+    mutating func setProfileShortcut(
+        _ shortcut: GlobalShortcut?,
+        for profileID: UUID
+    ) {
+        if let index = profileShortcuts.firstIndex(where: {
+            $0.profileID == profileID
+        }) {
+            profileShortcuts[index].shortcut = shortcut
+        } else {
+            profileShortcuts.append(ProfileShortcutAssignment(
+                profileID: profileID,
+                shortcut: shortcut
+            ))
+        }
+    }
+
+    mutating func reconcileProfiles(_ profiles: [DockProfile]) {
+        let profileIDs = Set(profiles.map(\.id))
+        var retained: [ProfileShortcutAssignment] = []
+        var seenIDs: Set<UUID> = []
+        for assignment in profileShortcuts where
+            profileIDs.contains(assignment.profileID)
+                && seenIDs.insert(assignment.profileID).inserted
+        {
+            retained.append(assignment)
+        }
+
+        var used = Set(retained.compactMap(\.shortcut))
+        used.insert(showHideDocks)
+        used.insert(quickLaunch)
+        for profile in profiles where !seenIDs.contains(profile.id) {
+            let shortcut = Self.defaultProfileShortcuts.first(where: {
+                !used.contains($0)
+            })
+            retained.append(ProfileShortcutAssignment(
+                profileID: profile.id,
+                shortcut: shortcut
+            ))
+            if let shortcut { used.insert(shortcut) }
+        }
+        profileShortcuts = retained
+    }
+
+    func validationError() -> String? {
         guard showHideDocks.isValid, quickLaunch.isValid else {
             return "Shortcuts need a supported key and at least one modifier."
         }
         guard showHideDocks != quickLaunch else {
             return "Show/Hide and Quick Launch cannot use the same shortcut."
         }
-        if profileShortcuts.contains(showHideDocks)
-            || profileShortcuts.contains(quickLaunch)
-        {
-            return "That shortcut is reserved for profile switching."
+
+        var used: Set<GlobalShortcut> = [showHideDocks, quickLaunch]
+        for assignment in profileShortcuts {
+            guard let shortcut = assignment.shortcut else { continue }
+            guard shortcut.isValid else {
+                return "Shortcuts need a supported key and at least one modifier."
+            }
+            guard used.insert(shortcut).inserted else {
+                return "Each action and profile needs a unique shortcut."
+            }
         }
         return nil
     }

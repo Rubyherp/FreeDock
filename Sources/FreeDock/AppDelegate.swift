@@ -1,4 +1,5 @@
 import Cocoa
+import Carbon.HIToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -135,17 +136,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
 
         let profileMenu = NSMenu()
-        for (index, profile) in configManager.config.profiles.enumerated() {
+        for profile in configManager.config.profiles {
             let profileItem = NSMenuItem(
                 title: profile.name,
                 action: #selector(switchProfile(_:)),
-                keyEquivalent: index < 9 ? "\(index + 1)" : ""
+                keyEquivalent: ""
             )
             profileItem.representedObject = profile.id
             profileItem.state = profile.id == configManager.config.activeProfileID ? .on : .off
-            if index < 9 {
-                profileItem.keyEquivalentModifierMask = [.control, .option]
-            }
+            configureMenuShortcut(
+                profileItem,
+                shortcut: configManager.config.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            )
             profileMenu.addItem(profileItem)
         }
         profileMenu.addItem(.separator())
@@ -178,18 +182,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let toggleProfileItem = NSMenuItem(
             title: dockPanels.isEmpty ? "Show Active Profile" : "Hide Active Profile",
             action: #selector(toggleActiveProfileDocks),
-            keyEquivalent: " "
+            keyEquivalent: ""
         )
-        toggleProfileItem.keyEquivalentModifierMask = [.control, .option]
+        configureMenuShortcut(
+            toggleProfileItem,
+            shortcut: configManager.config.globalShortcuts.showHideDocks
+        )
         toggleProfileItem.isEnabled = !configManager.config.docks.isEmpty
         menu.addItem(toggleProfileItem)
 
         let quickLaunchItem = NSMenuItem(
             title: "Quick Launch…",
             action: #selector(toggleQuickLaunch),
-            keyEquivalent: " "
+            keyEquivalent: ""
         )
-        quickLaunchItem.keyEquivalentModifierMask = [.command, .shift]
+        configureMenuShortcut(
+            quickLaunchItem,
+            shortcut: configManager.config.globalShortcuts.quickLaunch
+        )
         quickLaunchItem.isEnabled = !configManager.config.docks.isEmpty
         quickLaunchItem.target = self
         menu.addItem(quickLaunchItem)
@@ -316,6 +326,66 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         configureGlobalShortcuts()
         refreshPreferencesSnapshot()
+    }
+
+    private func configureMenuShortcut(
+        _ item: NSMenuItem,
+        shortcut: GlobalShortcut?
+    ) {
+        guard let shortcut,
+              let keyName = GlobalShortcut.keyName(for: shortcut.keyCode),
+              let keyEquivalent = menuKeyEquivalent(for: keyName)
+        else { return }
+
+        item.keyEquivalent = keyEquivalent
+        var modifiers: NSEvent.ModifierFlags = []
+        if shortcut.modifiers & UInt32(cmdKey) != 0 {
+            modifiers.insert(.command)
+        }
+        if shortcut.modifiers & UInt32(optionKey) != 0 {
+            modifiers.insert(.option)
+        }
+        if shortcut.modifiers & UInt32(controlKey) != 0 {
+            modifiers.insert(.control)
+        }
+        if shortcut.modifiers & UInt32(shiftKey) != 0 {
+            modifiers.insert(.shift)
+        }
+        item.keyEquivalentModifierMask = modifiers
+    }
+
+    private func menuKeyEquivalent(for keyName: String) -> String? {
+        if keyName.count == 1 {
+            return keyName.lowercased()
+        }
+        if keyName.hasPrefix("F"),
+           let number = Int(keyName.dropFirst()),
+           (1...12).contains(number),
+           let scalar = UnicodeScalar(0xF704 + number - 1)
+        {
+            return String(Character(scalar))
+        }
+
+        let specialKeys: [String: UInt32] = [
+            "Space": 0x20,
+            "Return": 0x0D,
+            "Tab": 0x09,
+            "Delete": 0x08,
+            "Forward Delete": 0xF728,
+            "Escape": 0x1B,
+            "←": 0xF702,
+            "→": 0xF703,
+            "↑": 0xF700,
+            "↓": 0xF701,
+            "Home": 0xF729,
+            "End": 0xF72B,
+            "Page Up": 0xF72C,
+            "Page Down": 0xF72D,
+        ]
+        guard let value = specialKeys[keyName],
+              let scalar = UnicodeScalar(value)
+        else { return nil }
+        return String(Character(scalar))
     }
 
     @objc private func showOnboarding() {
@@ -1161,20 +1231,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("FreeDock could not register the global Quick Launch shortcut Command-Shift-Space.")
         }
 
-        for (index, profile) in configManager.config.profiles.prefix(9).enumerated() {
-            shortcutManager.register(
-                id: UInt32(index + 2),
-                keyCode: GlobalShortcutManager.profileKeyCodes[index]
+        var didRegisterProfiles = true
+        for (index, profile) in configManager.config.profiles.enumerated() {
+            guard let shortcut = settings.shortcut(forProfile: profile.id) else {
+                continue
+            }
+            let registered = shortcutManager.register(
+                id: UInt32(index + 1_000),
+                keyCode: shortcut.keyCode,
+                modifiers: shortcut.modifiers
             ) { [weak self] in
                 self?.activateProfile(profile.id)
             }
+            didRegisterProfiles = didRegisterProfiles && registered
         }
         return didRegisterShowHide && didRegisterQuickLaunch
+            && didRegisterProfiles
     }
 
     private func applyGlobalShortcuts(
         _ settings: GlobalShortcutSettings
     ) -> String? {
+        var settings = settings
+        settings.reconcileProfiles(configManager.config.profiles)
         if let error = settings.validationError() {
             return error
         }
@@ -1188,6 +1267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configManager.save()
+        rebuildMenu()
         return nil
     }
 
@@ -1362,6 +1442,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let profile = DockProfile(name: name, docks: [starterDock])
         configManager.config.profiles.append(profile)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
         configManager.config.activeProfileID = profile.id
         restoreDocks()
         configManager.save()
@@ -1407,6 +1490,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         saveAllPositions()
         closeAllDockPanels()
         configManager.config.profiles.remove(at: index)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
         let nextIndex = min(index, configManager.config.profiles.count - 1)
         configManager.config.activeProfileID = configManager.config.profiles[nextIndex].id
         restoreDocks()

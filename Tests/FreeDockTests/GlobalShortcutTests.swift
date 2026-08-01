@@ -15,7 +15,8 @@ struct GlobalShortcutTests {
 
     @Test("Shortcut settings round-trip in application config")
     func configRoundTrip() throws {
-        let settings = GlobalShortcutSettings(
+        let profile = DockProfile(name: "Work")
+        var settings = GlobalShortcutSettings(
             showHideDocks: GlobalShortcut(
                 keyCode: UInt32(kVK_ANSI_D),
                 modifiers: UInt32(cmdKey) | UInt32(optionKey)
@@ -25,7 +26,8 @@ struct GlobalShortcutTests {
                 modifiers: UInt32(controlKey) | UInt32(shiftKey)
             )
         )
-        let config = AppConfig(globalShortcuts: settings)
+        settings.reconcileProfiles([profile])
+        let config = AppConfig(profiles: [profile], globalShortcuts: settings)
         let decoded = try JSONDecoder().decode(
             AppConfig.self,
             from: JSONEncoder().encode(config)
@@ -39,7 +41,11 @@ struct GlobalShortcutTests {
         { "formatVersion": 4, "docks": [] }
         """.utf8)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.globalShortcuts == GlobalShortcutSettings())
+        #expect(decoded.globalShortcuts.showHideDocks == .defaultShowHide)
+        #expect(decoded.globalShortcuts.quickLaunch == .defaultQuickLaunch)
+        #expect(decoded.globalShortcuts.shortcut(
+            forProfile: decoded.activeProfileID
+        ) == GlobalShortcutSettings.defaultProfileShortcuts[0])
     }
 
     @Test("Duplicate and modifierless shortcuts are rejected")
@@ -60,14 +66,47 @@ struct GlobalShortcutTests {
         #expect(invalid.validationError()?.contains("modifier") == true)
     }
 
-    @Test("Fixed profile combinations stay reserved")
+    @Test("Profile shortcuts cannot collide with another global action")
     func profileCollision() {
+        let profileID = UUID()
         let settings = GlobalShortcutSettings(
-            showHideDocks: GlobalShortcut(
-                keyCode: UInt32(kVK_ANSI_1),
-                modifiers: GlobalShortcutManager.standardModifiers
-            )
+            profileShortcuts: [ProfileShortcutAssignment(
+                profileID: profileID,
+                shortcut: .defaultShowHide
+            )]
         )
-        #expect(settings.validationError()?.contains("profile") == true)
+        #expect(settings.validationError()?.contains("unique") == true)
+    }
+
+    @Test("Profile shortcuts follow profile identity and can stay cleared")
+    func profileIdentityAndClearing() {
+        let work = DockProfile(name: "Work")
+        let personal = DockProfile(name: "Personal")
+        var settings = GlobalShortcutSettings()
+        settings.reconcileProfiles([work, personal])
+        let workShortcut = settings.shortcut(forProfile: work.id)
+        let personalShortcut = settings.shortcut(forProfile: personal.id)
+
+        settings.reconcileProfiles([personal, work])
+        #expect(settings.shortcut(forProfile: work.id) == workShortcut)
+        #expect(settings.shortcut(forProfile: personal.id) == personalShortcut)
+
+        settings.setProfileShortcut(nil, for: work.id)
+        settings.reconcileProfiles([personal, work])
+        #expect(settings.shortcut(forProfile: work.id) == nil)
+    }
+
+    @Test("New profiles receive the next unused default shortcut")
+    func newProfileDefault() {
+        let first = DockProfile(name: "First")
+        let second = DockProfile(name: "Second")
+        var settings = GlobalShortcutSettings()
+        settings.reconcileProfiles([first])
+        settings.reconcileProfiles([first, second])
+
+        #expect(settings.shortcut(forProfile: first.id)
+            == GlobalShortcutSettings.defaultProfileShortcuts[0])
+        #expect(settings.shortcut(forProfile: second.id)
+            == GlobalShortcutSettings.defaultProfileShortcuts[1])
     }
 }

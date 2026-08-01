@@ -53,7 +53,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
 - **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open
-- **Global shortcuts** — Customize Quick Launch and show/hide shortcuts, or switch profiles with `⌃⌥1…9`
+- **Global shortcuts** — Record unique shortcuts for Quick Launch, show/hide, and every profile; clear any profile shortcut you do not need
 - **Launch at login** — Optionally start FreeDock automatically when you sign in on macOS 13 or later
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Saved appearance themes** — Capture a dock’s style, opacity, blur, corners, and shadow, then reuse it across docks and profiles
@@ -146,16 +146,26 @@ make run
 
 **Customization:** Choose **Preferences…** from the FreeDock menu to manage window permissions, switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, save reusable appearance themes, or copy and reset dock settings. Changes are applied and saved immediately.
 
-**Shortcuts:** The defaults are `⌘⇧Space` for Quick Launch and `⌃⌥Space` to show or hide the active profile; both can be recorded again in Preferences. The first nine profiles are available globally with `⌃⌥1` through `⌃⌥9`.
+**Shortcuts:** The defaults are `⌘⇧Space` for Quick Launch, `⌃⌥Space` to show or hide the active profile, and `⌃⌥1` through `⌃⌥9` for the first nine profiles. Every assignment can be recorded in Preferences. Profile shortcuts stay attached to their profile when profiles are renamed or reordered, and can be cleared by pressing Delete while recording.
 
 ## Configuration
 
-Docks, profiles, appearance themes, shortcuts, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 8 adds portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
+Docks, profiles, appearance themes, shortcuts, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 9 adds per-profile shortcut assignments. Version 8 added portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 8,
+  "formatVersion": 9,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
+  "globalShortcuts": {
+    "showHideDocks": { "keyCode": 49, "modifiers": 6144 },
+    "quickLaunch": { "keyCode": 49, "modifiers": 768 },
+    "profileShortcuts": [
+      {
+        "profileID": "11111111-1111-1111-1111-111111111111",
+        "shortcut": { "keyCode": 18, "modifiers": 6144 }
+      }
+    ]
+  },
   "recentFiles": [
     {
       "path": "/Users/example/Documents/Project Brief.pdf",

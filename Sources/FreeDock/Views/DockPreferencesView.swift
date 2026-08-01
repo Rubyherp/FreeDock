@@ -774,6 +774,22 @@ struct DockPreferencesView: View {
 
             shortcutRow(for: .quickLaunch)
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Switch profiles")
+                    Text("Assign a global shortcut to each workflow. Press Delete while recording to clear one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(store.profiles) { profile in
+                    profileShortcutRow(profile)
+                }
+            }
+
             if let error = store.shortcutError {
                 Divider()
 
@@ -826,6 +842,32 @@ struct DockPreferencesView: View {
         case .quickLaunch:
             return "Search and open items from the nearest dock."
         }
+    }
+
+    private func profileShortcutRow(_ profile: DockProfile) -> some View {
+        HStack(spacing: 18) {
+            HStack(spacing: 7) {
+                Image(systemName: profile.id == store.activeProfileID
+                    ? "checkmark.circle.fill"
+                    : "circle")
+                    .foregroundStyle(profile.id == store.activeProfileID
+                        ? Color.accentColor
+                        : Color.secondary)
+                Text(profile.name)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ShortcutRecorderButton(
+                optionalShortcut: store.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            ) { shortcut in
+                store.updateProfileShortcut(shortcut, for: profile.id)
+            }
+            .frame(width: 135, height: 26)
+        }
+        .padding(.leading, 10)
     }
 
     private var configurationSection: some View {

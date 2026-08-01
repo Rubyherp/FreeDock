@@ -3,8 +3,30 @@ import Carbon.HIToolbox
 import SwiftUI
 
 struct ShortcutRecorderButton: NSViewRepresentable {
-    let shortcut: GlobalShortcut
-    let onChange: (GlobalShortcut) -> Void
+    let shortcut: GlobalShortcut?
+    let allowsClearing: Bool
+    let onChange: (GlobalShortcut?) -> Void
+
+    init(
+        shortcut: GlobalShortcut,
+        onChange: @escaping (GlobalShortcut) -> Void
+    ) {
+        self.shortcut = shortcut
+        allowsClearing = false
+        self.onChange = { value in
+            if let value { onChange(value) }
+        }
+    }
+
+    init(
+        optionalShortcut: GlobalShortcut?,
+        allowsClearing: Bool = true,
+        onChange: @escaping (GlobalShortcut?) -> Void
+    ) {
+        shortcut = optionalShortcut
+        self.allowsClearing = allowsClearing
+        self.onChange = onChange
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onChange: onChange)
@@ -14,6 +36,7 @@ struct ShortcutRecorderButton: NSViewRepresentable {
         let button = ShortcutRecorderNSButton()
         button.onChange = context.coordinator.onChange
         button.shortcut = shortcut
+        button.allowsClearing = allowsClearing
         return button
     }
 
@@ -24,22 +47,24 @@ struct ShortcutRecorderButton: NSViewRepresentable {
         context.coordinator.onChange = onChange
         button.onChange = context.coordinator.onChange
         button.shortcut = shortcut
+        button.allowsClearing = allowsClearing
     }
 
     final class Coordinator {
-        var onChange: (GlobalShortcut) -> Void
+        var onChange: (GlobalShortcut?) -> Void
 
-        init(onChange: @escaping (GlobalShortcut) -> Void) {
+        init(onChange: @escaping (GlobalShortcut?) -> Void) {
             self.onChange = onChange
         }
     }
 }
 
 final class ShortcutRecorderNSButton: NSButton {
-    var onChange: ((GlobalShortcut) -> Void)?
-    var shortcut: GlobalShortcut = .defaultShowHide {
+    var onChange: ((GlobalShortcut?) -> Void)?
+    var shortcut: GlobalShortcut? = .defaultShowHide {
         didSet { updateTitle() }
     }
+    var allowsClearing = false
     private var isRecording = false
     private var keyMonitor: Any?
 
@@ -77,6 +102,14 @@ final class ShortcutRecorderNSButton: NSButton {
 
     private func capture(_ event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) {
+            finishRecording()
+            return
+        }
+        if allowsClearing,
+            [UInt16(kVK_Delete), UInt16(kVK_ForwardDelete)]
+                .contains(event.keyCode)
+        {
+            onChange?(nil)
             finishRecording()
             return
         }
@@ -128,9 +161,9 @@ final class ShortcutRecorderNSButton: NSButton {
 
     private func updateTitle() {
         guard !isRecording else { return }
-        title = shortcut.displayName
+        title = shortcut?.displayName ?? "None"
         setAccessibilityLabel("Record keyboard shortcut")
-        setAccessibilityValue(shortcut.displayName)
+        setAccessibilityValue(shortcut?.displayName ?? "No shortcut")
     }
 
     private static func carbonModifiers(

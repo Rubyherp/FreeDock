@@ -260,8 +260,27 @@ final class DockPreferencesStore: ObservableObject {
         shortcutError = nil
     }
 
+    func updateProfileShortcut(
+        _ shortcut: GlobalShortcut?,
+        for profileID: UUID
+    ) {
+        var candidate = globalShortcuts
+        candidate.setProfileShortcut(shortcut, for: profileID)
+        if let error = candidate.validationError() {
+            shortcutError = error
+            return
+        }
+        if let error = onGlobalShortcutsChange(candidate) {
+            shortcutError = error
+            return
+        }
+        globalShortcuts = candidate
+        shortcutError = nil
+    }
+
     func resetGlobalShortcuts() {
-        let defaults = GlobalShortcutSettings()
+        var defaults = GlobalShortcutSettings()
+        defaults.reconcileProfiles(profiles)
         if let error = onGlobalShortcutsChange(defaults) {
             shortcutError = error
             return

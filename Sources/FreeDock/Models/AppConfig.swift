@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 8
+    static let currentFormatVersion = 9
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
@@ -25,6 +25,7 @@ struct AppConfig: Codable, Sendable {
             limit: RecentFileHistoryPlanner.maximumLimit
         )
         self.globalShortcuts = globalShortcuts
+        self.globalShortcuts.reconcileProfiles(profiles)
         self.recentApplications = RecentApplicationHistoryPlanner.normalized(
             recentApplications
         )
@@ -53,6 +54,7 @@ struct AppConfig: Codable, Sendable {
             limit: RecentFileHistoryPlanner.maximumLimit
         )
         self.globalShortcuts = globalShortcuts
+        self.globalShortcuts.reconcileProfiles(availableProfiles)
         self.recentApplications = RecentApplicationHistoryPlanner.normalized(
             recentApplications
         )
@@ -122,6 +124,7 @@ struct AppConfig: Codable, Sendable {
             } else {
                 activeProfileID = decodedProfiles[0].id
             }
+            globalShortcuts.reconcileProfiles(profiles)
             return
         }
 
@@ -129,6 +132,7 @@ struct AppConfig: Codable, Sendable {
         let migratedProfile = DockProfile(name: "Default", docks: legacyDocks)
         profiles = [migratedProfile]
         activeProfileID = migratedProfile.id
+        globalShortcuts.reconcileProfiles(profiles)
     }
 
     func encode(to encoder: Encoder) throws {
