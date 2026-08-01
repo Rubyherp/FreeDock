@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeDockResizeIDs: Set<UUID> = []
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
     private var screenParametersWorkItem: DispatchWorkItem?
+    private var observesProfileAutomation = false
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
     private var folderStackController: FolderStackPanelController?
     private let windowPreviewController =
@@ -93,12 +94,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configureRecentApplicationTracking()
+        configureProfileAutomation()
 
         restoreDocks()
         if !configManager.loadedFromDisk, configManager.config.docks.isEmpty {
             createInitialSeededDock()
         }
         rebuildMenu()
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateConnectedDisplayAutomation()
+        }
         NSApp.activate(ignoringOtherApps: true)
         if shouldPresentOnboarding {
             DispatchQueue.main.async { [weak self] in
@@ -115,6 +120,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         closeFolderStack()
         saveAllPositions()
         configManager.saveImmediately()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
@@ -127,6 +133,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         screenParametersWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.reconcileDisplayTopology()
+            self?.evaluateConnectedDisplayAutomation()
         }
         screenParametersWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
@@ -577,6 +584,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             importConfiguration()
         case let .activateProfile(profileID):
             activateProfile(profileID)
+        case let .addProfileApplicationAutomation(profileID):
+            chooseProfileAutomationApplication(for: profileID)
+        case let .addProfileDisplayAutomation(profileID, displayID):
+            addProfileDisplayAutomation(displayID, to: profileID)
+        case let .setProfileAutomationEnabled(profileID, ruleID, enabled):
+            setProfileAutomationEnabled(
+                enabled,
+                profileID: profileID,
+                ruleID: ruleID
+            )
+        case let .deleteProfileAutomation(profileID, ruleID):
+            deleteProfileAutomation(profileID: profileID, ruleID: ruleID)
         case .createProfile:
             createProfile()
         case .renameActiveProfile:
@@ -1194,6 +1213,141 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         restoreDocks()
         configManager.save()
         rebuildMenu()
+    }
+
+    private func configureProfileAutomation() {
+        guard !observesProfileAutomation else { return }
+        observesProfileAutomation = true
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(applicationDidActivateForProfileAutomation(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationDidActivateForProfileAutomation(
+        _ notification: Notification
+    ) {
+        guard let application = notification.userInfo?[
+            NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication,
+              application.processIdentifier
+                != ProcessInfo.processInfo.processIdentifier,
+              let bundleIdentifier = application.bundleIdentifier,
+              let profileID = ProfileAutomationPlanner.matchingProfileID(
+                triggerKind: .application,
+                value: bundleIdentifier,
+                profiles: configManager.config.profiles
+              )
+        else { return }
+        activateProfile(profileID)
+    }
+
+    private func evaluateConnectedDisplayAutomation() {
+        let displayIDs = DockDisplayManager.connectedDisplays.map {
+            $0.id.uuidString
+        }
+        for displayID in displayIDs {
+            if let profileID = ProfileAutomationPlanner.matchingProfileID(
+                triggerKind: .display,
+                value: displayID,
+                profiles: configManager.config.profiles
+            ) {
+                activateProfile(profileID)
+                return
+            }
+        }
+    }
+
+    private func chooseProfileAutomationApplication(for profileID: UUID) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Application"
+        panel.prompt = "Use Application"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let bundle = Bundle(url: url),
+              let bundleIdentifier = bundle.bundleIdentifier
+        else { return }
+
+        addProfileAutomationRule(
+            ProfileAutomationRule(
+                triggerKind: .application,
+                value: bundleIdentifier,
+                label: bundle.object(forInfoDictionaryKey: "CFBundleDisplayName")
+                    as? String
+                    ?? bundle.object(forInfoDictionaryKey: "CFBundleName")
+                    as? String
+                    ?? url.deletingPathExtension().lastPathComponent
+            ),
+            to: profileID
+        )
+    }
+
+    private func addProfileDisplayAutomation(
+        _ displayID: UUID,
+        to profileID: UUID
+    ) {
+        guard let display = DockDisplayManager.connectedDisplays.first(where: {
+            $0.id == displayID
+        }) else { return }
+        addProfileAutomationRule(
+            ProfileAutomationRule(
+                triggerKind: .display,
+                value: display.id.uuidString,
+                label: display.label
+            ),
+            to: profileID
+        )
+    }
+
+    private func addProfileAutomationRule(
+        _ rule: ProfileAutomationRule,
+        to profileID: UUID
+    ) {
+        guard let index = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), !configManager.config.profiles[index].automationRules.contains(where: {
+            $0.triggerKind == rule.triggerKind
+                && $0.value.caseInsensitiveCompare(rule.value) == .orderedSame
+        }) else { return }
+        configManager.config.profiles[index].automationRules.append(rule)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func setProfileAutomationEnabled(
+        _ enabled: Bool,
+        profileID: UUID,
+        ruleID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), let ruleIndex = configManager.config.profiles[profileIndex]
+            .automationRules.firstIndex(where: { $0.id == ruleID })
+        else { return }
+        configManager.config.profiles[profileIndex]
+            .automationRules[ruleIndex].isEnabled = enabled
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func deleteProfileAutomation(
+        profileID: UUID,
+        ruleID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }) else { return }
+        configManager.config.profiles[profileIndex].automationRules.removeAll {
+            $0.id == ruleID
+        }
+        configManager.save()
+        refreshPreferencesSnapshot()
     }
 
     @objc private func toggleActiveProfileDocks() {

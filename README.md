@@ -51,6 +51,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Unlimited docks** — Create as many docks as you need, on any screen
 - **Friendly onboarding** — A concise first-run guide introduces dock organization and keeps optional system permissions explicit
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
+- **Profile automation** — Activate a profile when a chosen application becomes frontmost or a particular display connects
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
 - **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open
 - **Global shortcuts** — Record unique shortcuts for Quick Launch, show/hide, and every profile; clear any profile shortcut you do not need
@@ -150,11 +151,11 @@ make run
 
 ## Configuration
 
-Docks, profiles, appearance themes, shortcuts, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 9 adds per-profile shortcut assignments. Version 8 added portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
+Docks, profiles, appearance themes, shortcuts, automation rules, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 10 adds per-profile application and display automation. Version 9 added per-profile shortcut assignments. Version 8 added portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
 
 ```json
 {
-  "formatVersion": 9,
+  "formatVersion": 10,
   "activeProfileID": "11111111-1111-1111-1111-111111111111",
   "globalShortcuts": {
     "showHideDocks": { "keyCode": 49, "modifiers": 6144 },

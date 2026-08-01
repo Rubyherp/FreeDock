@@ -264,6 +264,8 @@ struct DockPreferencesView: View {
 
                     generalSection
 
+                    profileAutomationSection
+
                     permissionsSection
 
                     configurationSection
@@ -684,6 +686,8 @@ struct DockPreferencesView: View {
 
                     generalSection
 
+                    profileAutomationSection
+
                     permissionsSection
 
                     configurationSection
@@ -691,6 +695,101 @@ struct DockPreferencesView: View {
                 .padding(28)
                 .frame(maxWidth: 760, alignment: .leading)
             }
+        }
+    }
+
+    private var profileAutomationSection: some View {
+        settingsSection(
+            title: "Profile Automation",
+            symbol: "bolt.fill"
+        ) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Activate “\(store.activeProfileName)” automatically")
+                Text("Rules use public macOS app and display events and remain entirely on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if store.activeProfileAutomationRules.isEmpty {
+                Text("No automation rules for this profile.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(store.activeProfileAutomationRules) { rule in
+                    Divider()
+                    HStack(spacing: 10) {
+                        Image(systemName: rule.triggerKind == .application
+                            ? "app.fill"
+                            : "display")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(rule.label)
+                                .lineLimit(1)
+                            Text(rule.triggerKind == .application
+                                ? "When this app becomes active"
+                                : "When this display connects")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Toggle("Enable \(rule.label)", isOn: Binding(
+                            get: { rule.isEnabled },
+                            set: { enabled in
+                                store.perform(.setProfileAutomationEnabled(
+                                    profileID: store.activeProfileID,
+                                    ruleID: rule.id,
+                                    enabled: enabled
+                                ))
+                            }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+
+                        Button(role: .destructive) {
+                            store.perform(.deleteProfileAutomation(
+                                profileID: store.activeProfileID,
+                                ruleID: rule.id
+                            ))
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete automation for \(rule.label)")
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Add Application…") {
+                    store.perform(.addProfileApplicationAutomation(
+                        store.activeProfileID
+                    ))
+                }
+
+                Menu("Add Display") {
+                    ForEach(store.displays) { display in
+                        Button(display.label) {
+                            store.perform(.addProfileDisplayAutomation(
+                                profileID: store.activeProfileID,
+                                displayID: display.id
+                            ))
+                        }
+                    }
+                }
+                .disabled(store.displays.isEmpty)
+
+                Spacer()
+            }
+            .controlSize(.small)
         }
     }
 

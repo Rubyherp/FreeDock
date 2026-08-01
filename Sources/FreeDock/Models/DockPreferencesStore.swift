@@ -22,6 +22,10 @@ enum DockManagementAction: Equatable {
     case exportConfiguration
     case importConfiguration
     case activateProfile(UUID)
+    case addProfileApplicationAutomation(UUID)
+    case addProfileDisplayAutomation(profileID: UUID, displayID: UUID)
+    case setProfileAutomationEnabled(profileID: UUID, ruleID: UUID, enabled: Bool)
+    case deleteProfileAutomation(profileID: UUID, ruleID: UUID)
     case createProfile
     case renameActiveProfile
     case deleteActiveProfile
@@ -160,6 +164,11 @@ final class DockPreferencesStore: ObservableObject {
 
     var activeProfileName: String {
         profiles.first(where: { $0.id == activeProfileID })?.name ?? "Default"
+    }
+
+    var activeProfileAutomationRules: [ProfileAutomationRule] {
+        profiles.first(where: { $0.id == activeProfileID })?
+            .automationRules ?? []
     }
 
     var canDeleteActiveProfile: Bool {
