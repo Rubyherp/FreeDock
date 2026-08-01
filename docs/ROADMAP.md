@@ -13,6 +13,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Native magnification, running-app indicators, tooltips, and launch animation
 - Reusable appearance themes shared across docks and profiles
 - Per-item custom labels and portable optimized icon artwork
+- A re-openable first-run guide for dock basics and optional permissions
 - Optional per-dock recent/running application section with local-only history and pinning
 - Reduced-motion-aware dock, stack, reorder, and preview transitions with descriptive VoiceOver controls
 - Cross-desktop window discovery and switching for running apps, with title/icon fallbacks and optional memory-only window thumbnails using Screen Recording access

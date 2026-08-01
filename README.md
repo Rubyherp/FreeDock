@@ -49,6 +49,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 ## Features
 
 - **Unlimited docks** — Create as many docks as you need, on any screen
+- **Friendly onboarding** — A concise first-run guide introduces dock organization and keeps optional system permissions explicit
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
 - **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open
@@ -132,6 +133,10 @@ make run
 14. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
 
 **Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
+
+**Welcome guide:** FreeDock shows a short guide on a fresh install. Reopen it anytime from the menu bar with **Welcome to FreeDock…**.
+
+**Support:** The final welcome step includes the project’s Buy Me a Coffee QR code. You can also open the support page anytime from menu bar → **Support FreeDock…**. Support is always optional and never unlocks features.
 
 **Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the stack or its right-click menu.
 

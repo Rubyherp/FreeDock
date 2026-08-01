@@ -8,6 +8,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/.build"
 APP_NAME="FreeDock"
 ICON_SOURCE="$PROJECT_DIR/Resources/AppIcon.icns"
+SUPPORT_QR_SOURCE="$PROJECT_DIR/docs/qr-code.png"
 
 echo "==> Building FreeDock..."
 cd "$PROJECT_DIR"
@@ -32,6 +33,15 @@ if [ -f "$ICON_SOURCE" ]; then
     echo "==> App icon copied from $ICON_SOURCE"
 else
     echo "==> Warning: icon not found at $ICON_SOURCE, building without custom app icon"
+fi
+
+# Bundle the support QR shown in onboarding. The documentation uses the same
+# source image so the app and README cannot drift apart.
+if [ -f "$SUPPORT_QR_SOURCE" ]; then
+    cp "$SUPPORT_QR_SOURCE" "$APP_BUNDLE/Contents/Resources/SupportQR.png"
+    echo "==> Support QR copied from $SUPPORT_QR_SOURCE"
+else
+    echo "==> Warning: support QR not found, building without onboarding QR"
 fi
 
 # Generate Info.plist for the bundle

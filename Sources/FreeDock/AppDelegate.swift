@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockStates: [UUID: DockState] = [:]
     private var preferencesStore: DockPreferencesStore?
     private var preferencesWindowController: PreferencesWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
     private var menuRefreshWorkItem: DispatchWorkItem?
     private var dockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
     private var liveDockResizeWorkItems: [UUID: DispatchWorkItem] = [:]
@@ -31,6 +32,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickLaunchResizeWorkItem: DispatchWorkItem?
     private var hideRestoredDocksAfterFolderStack = false
     private var itemDragInteractionTokens: [UUID: UUID] = [:]
+    private static let onboardingCompletionKey =
+        "FreeDockHasCompletedOnboardingV1"
 
     private struct QuickLaunchSession {
         let dockID: UUID
@@ -62,6 +65,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        let shouldPresentOnboarding = OnboardingLaunchPolicy.shouldPresent(
+            loadedConfigurationFromDisk: configManager.loadedFromDisk,
+            hasCompletedOnboarding: UserDefaults.standard.bool(
+                forKey: Self.onboardingCompletionKey
+            )
+        )
         itemDragCoordinator.onSessionBegan = { [weak self] _ in
             self?.beginDockItemDragInteraction()
         }
@@ -90,6 +99,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         rebuildMenu()
         NSApp.activate(ignoringOtherApps: true)
+        if shouldPresentOnboarding {
+            DispatchQueue.main.async { [weak self] in
+                self?.presentOnboarding()
+            }
+        }
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -270,6 +284,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(removeItem)
 
         menu.addItem(.separator())
+        let welcomeItem = NSMenuItem(
+            title: "Welcome to FreeDock…",
+            action: #selector(showOnboarding),
+            keyEquivalent: ""
+        )
+        welcomeItem.target = self
+        menu.addItem(welcomeItem)
+        let supportItem = NSMenuItem(
+            title: "Support FreeDock…",
+            action: #selector(openSupportPage),
+            keyEquivalent: ""
+        )
+        supportItem.target = self
+        menu.addItem(supportItem)
         let preferencesItem = NSMenuItem(
             title: "Preferences…",
             action: #selector(showPreferences),
@@ -288,6 +316,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         configureGlobalShortcuts()
         refreshPreferencesSnapshot()
+    }
+
+    @objc private func showOnboarding() {
+        presentOnboarding()
+    }
+
+    @objc private func openSupportPage() {
+        guard let url = URL(
+            string: "https://www.buymeacoffee.com/thksalot"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func presentOnboarding() {
+        if let onboardingWindowController {
+            onboardingWindowController.show()
+            return
+        }
+        let controller = OnboardingWindowController(
+            requestAccessibility: { [weak self] in
+                guard let self else { return false }
+                return self.windowPreviewController.requestAccessibilityAccess()
+                    || self.windowPreviewController.isAccessibilityTrusted
+            },
+            requestScreenRecording: { [weak self] in
+                guard let self else { return false }
+                return self.windowPreviewController.requestScreenCaptureAccess()
+                    || self.windowPreviewController.isScreenCaptureTrusted
+            },
+            onFinish: { [weak self] openPreferences in
+                self?.finishOnboarding(openPreferences: openPreferences)
+            },
+            onClosed: { [weak self] in
+                self?.markOnboardingCompleted()
+                self?.onboardingWindowController = nil
+            }
+        )
+        onboardingWindowController = controller
+        controller.show()
+    }
+
+    private func finishOnboarding(openPreferences: Bool) {
+        markOnboardingCompleted()
+        let controller = onboardingWindowController
+        onboardingWindowController = nil
+        controller?.close()
+        if openPreferences {
+            showPreferences()
+        }
+    }
+
+    private func markOnboardingCompleted() {
+        UserDefaults.standard.set(
+            true,
+            forKey: Self.onboardingCompletionKey
+        )
     }
 
     @objc private func showPreferences() {
