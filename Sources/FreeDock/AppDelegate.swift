@@ -297,6 +297,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 activeProfileID: configManager.config.activeProfileID,
                 displays: DockDisplayManager.connectedDisplays,
                 globalShortcuts: configManager.config.globalShortcuts,
+                themes: configManager.config.themes,
                 onChange: { [weak self] dockID, change in
                     self?.applyDockPreference(change, to: dockID)
                 },
@@ -347,7 +348,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             profiles: configManager.config.profiles,
             activeProfileID: configManager.config.activeProfileID,
             displays: DockDisplayManager.connectedDisplays,
-            globalShortcuts: configManager.config.globalShortcuts
+            globalShortcuts: configManager.config.globalShortcuts,
+            themes: configManager.config.themes
         )
         preferencesStore?.refreshPermissions()
         preferencesStore?.refreshLaunchAtLogin()
@@ -451,6 +453,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             confirmAndResetDockSettings(dockID)
         case let .copyDockSettingsToAll(dockID):
             confirmAndCopyDockSettingsToAll(dockID)
+        case let .saveDockTheme(dockID):
+            promptToSaveDockTheme(from: dockID)
+        case let .applyDockTheme(themeID, dockID):
+            applyDockTheme(themeID, to: dockID)
+        case let .deleteDockTheme(themeID):
+            confirmAndDeleteDockTheme(themeID)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -2451,6 +2459,103 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
         applyDockSettings(source.settings, to: Set(targetIDs))
+    }
+
+    private func promptToSaveDockTheme(from dockID: UUID) {
+        guard let dock = configManager.config.docks.first(where: {
+            $0.id == dockID
+        }) else { return }
+        var proposedValue = "\(dock.name) Style"
+
+        while true {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.messageText = "Save Appearance Theme"
+            alert.informativeText = "Save this dock’s style, opacity, blur, corners, and shadow for reuse on any dock or profile."
+            let field = NSTextField(
+                frame: NSRect(x: 0, y: 0, width: 240, height: 24)
+            )
+            field.stringValue = proposedValue
+            field.selectText(nil)
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+            proposedValue = field.stringValue.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            if proposedValue.isEmpty {
+                showThemeError("Theme names cannot be empty.")
+                continue
+            }
+            let duplicate = configManager.config.themes.contains {
+                $0.name.compare(
+                    proposedValue,
+                    options: [.caseInsensitive, .diacriticInsensitive]
+                ) == .orderedSame
+            }
+            if duplicate {
+                showThemeError("A theme named “\(proposedValue)” already exists.")
+                continue
+            }
+
+            configManager.config.themes.append(
+                DockTheme(name: proposedValue, dock: dock)
+            )
+            configManager.save()
+            refreshPreferencesSnapshot()
+            return
+        }
+    }
+
+    private func applyDockTheme(_ themeID: UUID, to dockID: UUID) {
+        guard let theme = configManager.config.themes.first(where: {
+            $0.id == themeID
+        }),
+        let index = configManager.config.docks.firstIndex(where: {
+            $0.id == dockID
+        }) else { return }
+
+        let previous = configManager.config.docks[index]
+        var updated = previous
+        theme.apply(to: &updated)
+        guard updated != previous else { return }
+        configManager.config.docks[index] = updated
+        preferencesStore?.replaceDock(updated)
+        reconcileDockRuntime(from: previous, to: updated)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func confirmAndDeleteDockTheme(_ themeID: UUID) {
+        guard let index = configManager.config.themes.firstIndex(where: {
+            $0.id == themeID
+        }) else { return }
+        let theme = configManager.config.themes[index]
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Delete “\(theme.name)”?"
+        alert.informativeText = "Docks already using this appearance will not change."
+        alert.addButton(withTitle: "Cancel")
+        let deleteButton = alert.addButton(withTitle: "Delete")
+        deleteButton.hasDestructiveAction = true
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        configManager.config.themes.remove(at: index)
+        configManager.save()
+        refreshPreferencesSnapshot()
+    }
+
+    private func showThemeError(_ message: String) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Theme Not Saved"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func applyDockSettings(_ settings: DockSettings, to targetIDs: Set<UUID>) {

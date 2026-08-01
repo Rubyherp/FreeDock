@@ -6,6 +6,7 @@ enum ConfigFileCodecError: LocalizedError, Equatable {
     case unsupportedVersion(Int)
     case duplicateProfile
     case duplicateDock
+    case duplicateTheme
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ enum ConfigFileCodecError: LocalizedError, Equatable {
             return "The configuration contains duplicate profile identifiers."
         case .duplicateDock:
             return "The configuration contains duplicate dock identifiers."
+        case .duplicateTheme:
+            return "The configuration contains duplicate appearance theme identifiers."
         }
     }
 }
@@ -61,6 +64,10 @@ enum ConfigFileCodec {
         let dockIDs = config.profiles.flatMap { $0.docks.map(\.id) }
         guard Set(dockIDs).count == dockIDs.count else {
             throw ConfigFileCodecError.duplicateDock
+        }
+        let themeIDs = config.themes.map(\.id)
+        guard Set(themeIDs).count == themeIDs.count else {
+            throw ConfigFileCodecError.duplicateTheme
         }
         return config
     }

@@ -19,7 +19,8 @@ struct ConfigFileCodecTests {
         let config = AppConfig(
             profiles: [firstProfile, secondProfile],
             activeProfileID: secondProfile.id,
-            recentFiles: [record]
+            recentFiles: [record],
+            themes: [DockTheme(name: "Work Glass", dock: firstDock)]
         )
 
         let decoded = try ConfigFileCodec.decode(
@@ -33,6 +34,7 @@ struct ConfigFileCodecTests {
         )
         #expect(decoded.activeProfileID == secondProfile.id)
         #expect(decoded.recentFiles.compactMap { $0.fileURL } == [recentURL])
+        #expect(decoded.themes.map(\.name) == ["Work Glass"])
     }
 
     @Test("Future configuration formats are rejected")
@@ -94,6 +96,35 @@ struct ConfigFileCodecTests {
         #expect(throws: ConfigFileCodecError.duplicateDock) {
             try ConfigFileCodec.decode(
                 ConfigFileCodec.encode(duplicateDocks)
+            )
+        }
+
+        let themeID = UUID()
+        let duplicateThemes = AppConfig(
+            themes: [
+                DockTheme(
+                    id: themeID,
+                    name: "One",
+                    appearance: .glass,
+                    surfaceOpacity: 1,
+                    blurStyle: .regular,
+                    cornerRadius: 18,
+                    shadowStrength: 1
+                ),
+                DockTheme(
+                    id: themeID,
+                    name: "Two",
+                    appearance: .dark,
+                    surfaceOpacity: 0.8,
+                    blurStyle: .strong,
+                    cornerRadius: 22,
+                    shadowStrength: 1.5
+                ),
+            ]
+        )
+        #expect(throws: ConfigFileCodecError.duplicateTheme) {
+            try ConfigFileCodec.decode(
+                ConfigFileCodec.encode(duplicateThemes)
             )
         }
     }

@@ -1,19 +1,21 @@
 import Foundation
 
 struct AppConfig: Codable, Sendable {
-    static let currentFormatVersion = 6
+    static let currentFormatVersion = 7
 
     var profiles: [DockProfile]
     var activeProfileID: UUID
     var recentFiles: [RecentFileRecord]
     var globalShortcuts: GlobalShortcutSettings
     var recentApplications: [RecentApplicationRecord]
+    var themes: [DockTheme]
 
     init(
         docks: [DockConfig] = [],
         recentFiles: [RecentFileRecord] = [],
         globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
-        recentApplications: [RecentApplicationRecord] = []
+        recentApplications: [RecentApplicationRecord] = [],
+        themes: [DockTheme] = []
     ) {
         let profile = DockProfile(name: "Default", docks: docks)
         profiles = [profile]
@@ -26,6 +28,7 @@ struct AppConfig: Codable, Sendable {
         self.recentApplications = RecentApplicationHistoryPlanner.normalized(
             recentApplications
         )
+        self.themes = themes
     }
 
     init(
@@ -33,7 +36,8 @@ struct AppConfig: Codable, Sendable {
         activeProfileID: UUID? = nil,
         recentFiles: [RecentFileRecord] = [],
         globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
-        recentApplications: [RecentApplicationRecord] = []
+        recentApplications: [RecentApplicationRecord] = [],
+        themes: [DockTheme] = []
     ) {
         let availableProfiles = profiles.isEmpty ? [DockProfile(name: "Default")] : profiles
         self.profiles = availableProfiles
@@ -52,6 +56,7 @@ struct AppConfig: Codable, Sendable {
         self.recentApplications = RecentApplicationHistoryPlanner.normalized(
             recentApplications
         )
+        self.themes = themes
     }
 
     var docks: [DockConfig] {
@@ -81,6 +86,7 @@ struct AppConfig: Codable, Sendable {
         case recentFiles
         case globalShortcuts
         case recentApplications
+        case themes
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +108,7 @@ struct AppConfig: Codable, Sendable {
                 forKey: .recentApplications
             )) ?? []
         )
+        themes = (try? container.decode([DockTheme].self, forKey: .themes)) ?? []
 
         if let decodedProfiles = try container.decodeIfPresent([DockProfile].self, forKey: .profiles),
            !decodedProfiles.isEmpty
@@ -133,5 +140,6 @@ struct AppConfig: Codable, Sendable {
         try container.encode(recentFiles, forKey: .recentFiles)
         try container.encode(globalShortcuts, forKey: .globalShortcuts)
         try container.encode(recentApplications, forKey: .recentApplications)
+        try container.encode(themes, forKey: .themes)
     }
 }

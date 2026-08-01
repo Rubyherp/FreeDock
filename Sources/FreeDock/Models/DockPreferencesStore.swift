@@ -37,6 +37,9 @@ enum DockManagementAction: Equatable {
     case importSystemDockApps(UUID)
     case resetDockSettings(UUID)
     case copyDockSettingsToAll(UUID)
+    case saveDockTheme(UUID)
+    case applyDockTheme(themeID: UUID, dockID: UUID)
+    case deleteDockTheme(UUID)
 }
 
 extension DockConfig {
@@ -86,6 +89,7 @@ final class DockPreferencesStore: ObservableObject {
     @Published private(set) var permissionState: PreferencesPermissionState
     @Published private(set) var launchAtLoginState: LaunchAtLoginState
     @Published private(set) var globalShortcuts: GlobalShortcutSettings
+    @Published private(set) var themes: [DockTheme]
     @Published private(set) var shortcutError: String?
     @Published var selectedDockID: UUID?
 
@@ -106,6 +110,7 @@ final class DockPreferencesStore: ObservableObject {
         permissionState: PreferencesPermissionState = PreferencesPermissionState(),
         launchAtLoginState: LaunchAtLoginState = LaunchAtLoginState(),
         globalShortcuts: GlobalShortcutSettings = GlobalShortcutSettings(),
+        themes: [DockTheme] = [],
         onChange: @escaping (UUID, DockPreferenceChange) -> Void,
         onManagementAction: @escaping (DockManagementAction) -> Void,
         permissionSnapshot: @escaping () -> PreferencesPermissionSnapshot = {
@@ -139,6 +144,7 @@ final class DockPreferencesStore: ObservableObject {
         self.permissionState = permissionState
         self.launchAtLoginState = launchAtLoginState
         self.globalShortcuts = globalShortcuts
+        self.themes = themes
         shortcutError = nil
         selectedDockID = activeDocks.first?.id
         self.onChange = onChange
@@ -173,7 +179,8 @@ final class DockPreferencesStore: ObservableObject {
         profiles: [DockProfile],
         activeProfileID: UUID,
         displays: [DockDisplayDescriptor]? = nil,
-        globalShortcuts: GlobalShortcutSettings? = nil
+        globalShortcuts: GlobalShortcutSettings? = nil,
+        themes: [DockTheme]? = nil
     ) {
         let profileChanged = activeProfileID != self.activeProfileID
         self.profiles = profiles
@@ -183,6 +190,9 @@ final class DockPreferencesStore: ObservableObject {
         }
         if let globalShortcuts {
             self.globalShortcuts = globalShortcuts
+        }
+        if let themes {
+            self.themes = themes
         }
         let activeDocks = profiles.first(where: { $0.id == activeProfileID })?.docks ?? []
         docks = activeDocks

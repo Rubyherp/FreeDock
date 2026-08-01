@@ -272,6 +272,66 @@ struct DockPreferencesView: View {
                         title: "Appearance",
                         symbol: "paintbrush.fill"
                     ) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            settingRow("Saved themes") {
+                                Menu {
+                                    ForEach(store.themes) { theme in
+                                        Button(theme.name) {
+                                            store.perform(
+                                                .applyDockTheme(
+                                                    themeID: theme.id,
+                                                    dockID: dock.id
+                                                )
+                                            )
+                                        }
+                                    }
+                                } label: {
+                                    Text(
+                                        store.themes.isEmpty
+                                            ? "No Saved Themes"
+                                            : "Apply Theme"
+                                    )
+                                    .frame(minWidth: 108)
+                                }
+                                .disabled(store.themes.isEmpty)
+
+                                Button {
+                                    store.perform(.saveDockTheme(dock.id))
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .help("Save the current appearance as a theme")
+                                .accessibilityLabel("Save current appearance theme")
+
+                                if !store.themes.isEmpty {
+                                    Menu {
+                                        ForEach(store.themes) { theme in
+                                            Button(
+                                                "Delete \(theme.name)…",
+                                                role: .destructive
+                                            ) {
+                                                store.perform(
+                                                    .deleteDockTheme(theme.id)
+                                                )
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "ellipsis.circle")
+                                    }
+                                    .help("Manage saved themes")
+                                    .accessibilityLabel("Manage saved themes")
+                                }
+                            }
+                            Text(
+                                "Themes reuse style, opacity, blur, corners, and shadow without changing dock contents or behavior."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Divider()
+
                         settingRow("Style") {
                             Picker("Style", selection: appearanceBinding) {
                                 ForEach(DockAppearance.allCases, id: \.self) { appearance in

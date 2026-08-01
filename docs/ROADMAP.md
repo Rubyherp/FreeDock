@@ -11,6 +11,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Recent Files and Downloads smart stacks, with a local, clearable 50-document history and dynamic Downloads resolution
 - A native Trash item with live empty/full state, Finder drops, and confirmed emptying
 - Native magnification, running-app indicators, tooltips, and launch animation
+- Reusable appearance themes shared across docks and profiles
 - Optional per-dock recent/running application section with local-only history and pinning
 - Reduced-motion-aware dock, stack, reorder, and preview transitions with descriptive VoiceOver controls
 - Cross-desktop window discovery and switching for running apps, with title/icon fallbacks and optional memory-only window thumbnails using Screen Recording access
