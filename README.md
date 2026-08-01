@@ -51,6 +51,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Unlimited docks** — Create as many docks as you need, on any screen
 - **Friendly onboarding** — A concise first-run guide introduces dock organization and keeps optional system permissions explicit
 - **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
+- **Portable profiles** — Export or import one profile—including docks, custom artwork, automation, and its available shortcut—without replacing the rest of your setup
 - **Profile automation** — Activate a profile when a chosen application becomes frontmost or a particular display connects
 - **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
 - **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open

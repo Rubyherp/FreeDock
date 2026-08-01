@@ -21,6 +21,8 @@ enum DockPreferenceChange: Equatable {
 enum DockManagementAction: Equatable {
     case exportConfiguration
     case importConfiguration
+    case exportActiveProfile
+    case importProfile
     case activateProfile(UUID)
     case addProfileApplicationAutomation(UUID)
     case addProfileDisplayAutomation(profileID: UUID, displayID: UUID)

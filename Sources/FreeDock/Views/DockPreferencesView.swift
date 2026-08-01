@@ -1016,6 +1016,26 @@ struct DockPreferencesView: View {
             ) {
                 store.perform(.importConfiguration)
             }
+
+            Divider()
+
+            actionRow(
+                title: "Export current profile",
+                description: "Share “\(store.activeProfileName)” with its docks, automation rules, custom artwork, and shortcut.",
+                buttonTitle: "Export…"
+            ) {
+                store.perform(.exportActiveProfile)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Import profile",
+                description: "Add one profile without replacing your existing profiles or local history.",
+                buttonTitle: "Import…"
+            ) {
+                store.perform(.importProfile)
+            }
         }
     }
 

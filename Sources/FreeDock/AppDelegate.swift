@@ -611,6 +611,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exportConfiguration()
         case .importConfiguration:
             importConfiguration()
+        case .exportActiveProfile:
+            exportActiveProfile()
+        case .importProfile:
+            importProfile()
         case let .activateProfile(profileID):
             activateProfile(profileID)
         case let .addProfileApplicationAutomation(profileID):
@@ -732,6 +736,107 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         configManager.saveImmediately()
         restoreDocks()
         rebuildMenu()
+    }
+
+    private func exportActiveProfile() {
+        saveAllPositions()
+        guard let profile = configManager.config.profiles.first(where: {
+            $0.id == configManager.config.activeProfileID
+        }) else { return }
+
+        let panel = NSSavePanel()
+        panel.title = "Export FreeDock Profile"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = "\(profile.name) FreeDock Profile.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let archive = DockProfileArchive(
+                profile: profile,
+                shortcut: configManager.config.globalShortcuts.shortcut(
+                    forProfile: profile.id
+                )
+            )
+            try ProfileFileCodec.encode(archive).write(
+                to: url,
+                options: .atomic
+            )
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Export Profile",
+                error: error
+            )
+        }
+    }
+
+    private func importProfile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import FreeDock Profile"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let archive: DockProfileArchive
+        do {
+            archive = try ProfileFileCodec.decode(Data(contentsOf: url))
+        } catch {
+            showConfigurationFileError(
+                title: "Couldn’t Import Profile",
+                error: error
+            )
+            return
+        }
+
+        let name = uniqueImportedProfileName(archive.profile.name)
+        let imported = archive.materializedProfile(named: name)
+        saveAllPositions()
+        closeAllDockPanels()
+        configManager.config.profiles.append(imported)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
+        if let shortcut = archive.shortcut {
+            var candidate = configManager.config.globalShortcuts
+            candidate.setProfileShortcut(shortcut, for: imported.id)
+            if candidate.validationError() == nil {
+                configManager.config.globalShortcuts = candidate
+            }
+        }
+        configManager.config.activeProfileID = imported.id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func uniqueImportedProfileName(_ requestedName: String) -> String {
+        let trimmed = requestedName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let base = trimmed.isEmpty ? "Imported Profile" : trimmed
+        let existing = Set(configManager.config.profiles.map {
+            $0.name.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            )
+        })
+        if !existing.contains(base.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )) {
+            return base
+        }
+        var number = 2
+        while existing.contains("\(base) \(number)".folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )) {
+            number += 1
+        }
+        return "\(base) \(number)"
     }
 
     private func showConfigurationFileError(title: String, error: Error) {
