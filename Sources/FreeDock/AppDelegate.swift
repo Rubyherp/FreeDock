@@ -26,6 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeDockResizeIDs: Set<UUID> = []
     private var pendingAutoHideUpdates: [UUID: (enabled: Bool, orientation: Orientation)] = [:]
     private var screenParametersWorkItem: DispatchWorkItem?
+    private var registeredShortcutSettings: GlobalShortcutSettings?
     private var observesProfileAutomation = false
     private var runtimeDisplayStates: [UUID: RuntimeDisplayState] = [:]
     private var folderStackController: FolderStackPanelController?
@@ -97,6 +98,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         configureRecentApplicationTracking()
         configureProfileAutomation()
 
+        let recoverySource = configManager.loadSource
+        if case .backup = recoverySource {
+            configManager.saveImmediately()
+        }
+
         restoreDocks()
         if !configManager.loadedFromDisk, configManager.config.docks.isEmpty {
             createInitialSeededDock()
@@ -110,6 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { [weak self] in
                 self?.presentOnboarding()
             }
+        } else if case let .backup(generation) = recoverySource {
+            DispatchQueue.main.async { [weak self] in
+                self?.showAutomaticRecoveryNotice(generation: generation)
+            }
         }
     }
 
@@ -122,6 +132,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         saveAllPositions()
         configManager.saveImmediately()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    func applicationDidBecomeActive(_: Notification) {
+        windowPreviewController.reconcilePermissions()
+        preferencesStore?.refreshPermissions()
     }
 
     func applicationDidChangeScreenParameters(_: Notification) {
@@ -141,6 +156,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func rebuildMenu() {
+        let performanceInterval = PerformanceTrace.begin("MenuRebuild")
+        defer { PerformanceTrace.end(performanceInterval) }
         let menu = NSMenu()
 
         let profileMenu = NSMenu()
@@ -345,7 +362,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit FreeDock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
-        configureGlobalShortcuts()
+        configureGlobalShortcutsIfNeeded()
         refreshPreferencesSnapshot()
     }
 
@@ -613,6 +630,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exportConfiguration()
         case .importConfiguration:
             importConfiguration()
+        case .restoreLastWorkingConfiguration:
+            confirmAndRestoreLastWorkingConfiguration()
         case .exportActiveProfile:
             exportActiveProfile()
         case .importProfile:
@@ -738,6 +757,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         configManager.saveImmediately()
         restoreDocks()
         rebuildMenu()
+    }
+
+    private func confirmAndRestoreLastWorkingConfiguration() {
+        guard configManager.hasRecoverableBackup else {
+            let alert = NSAlert()
+            alert.icon = NSApp.applicationIconImage
+            alert.alertStyle = .informational
+            alert.messageText = "No Recovery Backup Available"
+            alert.informativeText = "FreeDock creates recovery history after configuration changes. There is not a valid earlier version to restore yet."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .warning
+        alert.messageText = "Restore the last working configuration?"
+        alert.informativeText = "Profiles, docks, and settings will return to the newest valid automatic backup."
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Restore")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+
+        saveAllPositions()
+        closeAllDockPanels()
+        guard configManager.restoreLatestBackup() else {
+            restoreDocks()
+            return
+        }
+        configureRecentApplicationTracking()
+        configureProfileAutomation()
+        restoreDocks()
+        rebuildMenu()
+    }
+
+    private func showAutomaticRecoveryNotice(generation: Int) {
+        let alert = NSAlert()
+        alert.icon = NSApp.applicationIconImage
+        alert.alertStyle = .informational
+        alert.messageText = "FreeDock Recovered Your Configuration"
+        let version = generation == 0
+            ? "the newest automatic backup"
+            : "an earlier automatic backup"
+        alert.informativeText = "The main configuration file could not be read, so FreeDock restored \(version). Your docks and profiles are safe, and the damaged file has been repaired."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func exportActiveProfile() {
@@ -1498,9 +1563,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @discardableResult
-    private func configureGlobalShortcuts() -> Bool {
-        shortcutManager.reset()
+    private func configureGlobalShortcutsIfNeeded() -> Bool {
         let settings = configManager.config.globalShortcuts
+        if registeredShortcutSettings == settings {
+            return true
+        }
+
+        shortcutManager.reset()
+        registeredShortcutSettings = nil
         let showHide = settings.showHideDocks
         let didRegisterShowHide = shortcutManager.register(
             id: 1,
@@ -1535,8 +1605,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             didRegisterProfiles = didRegisterProfiles && registered
         }
-        return didRegisterShowHide && didRegisterQuickLaunch
+        let didRegister = didRegisterShowHide && didRegisterQuickLaunch
             && didRegisterProfiles
+        if didRegister {
+            registeredShortcutSettings = settings
+        }
+        return didRegister
     }
 
     private func applyGlobalShortcuts(
@@ -1550,9 +1624,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let previous = configManager.config.globalShortcuts
         configManager.config.globalShortcuts = settings
-        guard configureGlobalShortcuts() else {
+        guard configureGlobalShortcutsIfNeeded() else {
             configManager.config.globalShortcuts = previous
-            configureGlobalShortcuts()
+            configureGlobalShortcutsIfNeeded()
             return "macOS could not register that shortcut. It may already be used by another app."
         }
 
@@ -3675,6 +3749,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restoreDocks() {
+        let performanceInterval = PerformanceTrace.begin("DockRestore")
+        defer { PerformanceTrace.end(performanceInterval) }
         for dock in configManager.config.docks {
             showDock(dock)
         }

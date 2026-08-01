@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Window preview panel state")
 struct WindowPreviewPanelStateTests {
+    @Test("Permission loss chooses a safe preview fallback")
+    func permissionFallbacks() {
+        #expect(
+            WindowPreviewPermissionPolicy.fallback(
+                accessibilityTrusted: false,
+                screenCaptureTrusted: false
+            ) == .closePreview
+        )
+        #expect(
+            WindowPreviewPermissionPolicy.fallback(
+                accessibilityTrusted: false,
+                screenCaptureTrusted: true
+            ) == .closePreview
+        )
+        #expect(
+            WindowPreviewPermissionPolicy.fallback(
+                accessibilityTrusted: true,
+                screenCaptureTrusted: false
+            ) == .metadataOnly
+        )
+        #expect(
+            WindowPreviewPermissionPolicy.fallback(
+                accessibilityTrusted: true,
+                screenCaptureTrusted: true
+            ) == .fullPreview
+        )
+    }
+
     @Test("Ready queries with cards are accepted")
     func readyQueryIsAccepted() {
         #expect(

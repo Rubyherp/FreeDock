@@ -245,7 +245,7 @@ enum DockDisplayGeometry {
                 at: edge,
                 in: display.visibleFrame
             )
-            let hiddenFrame = autoHiddenFrame(
+            let hiddenFrame = hiddenFrame(
                 restingFrame,
                 at: edge,
                 in: display.visibleFrame
@@ -448,7 +448,7 @@ enum DockDisplayGeometry {
         }
     }
 
-    private static func autoHiddenFrame(
+    static func hiddenFrame(
         _ frame: CGRect,
         at edge: DockScreenEdge,
         in visibleFrame: CGRect

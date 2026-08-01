@@ -1067,10 +1067,20 @@ struct DockPreferencesView: View {
 
             actionRow(
                 title: "Import configuration",
-                description: "Replace the current setup from a FreeDock JSON backup. Your existing setup is preserved in the automatic backup file.",
+                description: "Replace the current setup from a FreeDock JSON backup. Your existing setup is preserved in the automatic recovery history.",
                 buttonTitle: "Import…"
             ) {
                 store.perform(.importConfiguration)
+            }
+
+            Divider()
+
+            actionRow(
+                title: "Restore last working configuration",
+                description: "Recover the newest valid automatic backup if a recent change or damaged file caused a problem.",
+                buttonTitle: "Restore…"
+            ) {
+                store.perform(.restoreLastWorkingConfiguration)
             }
 
             Divider()

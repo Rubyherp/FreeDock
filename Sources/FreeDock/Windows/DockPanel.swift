@@ -45,7 +45,6 @@ class DockPanel: NSPanel, NSWindowDelegate {
     private var quickLaunchKeyModeEnabled = false
 
     private let edgeTolerance: CGFloat = 2
-    private let revealThickness = DockDisplayGeometry.autoHideRevealThickness
 
     private var reduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -207,8 +206,8 @@ class DockPanel: NSPanel, NSWindowDelegate {
         {
             shownFrame = anchoredFrame
             setFrame(
-                hiddenFrame(
-                    for: anchoredFrame,
+                DockDisplayGeometry.hiddenFrame(
+                    anchoredFrame,
                     at: hiddenEdge,
                     in: hiddenVisibleFrame
                 ),
@@ -275,8 +274,8 @@ class DockPanel: NSPanel, NSWindowDelegate {
             self.dockContainer?.showRevealIndicator(at: self.revealEdge(for: edge))
             self.hostingView?.alphaValue = 0
             self.hostingView?.isHidden = true
-            let hiddenFrame = self.hiddenFrame(
-                for: restingFrame,
+            let hiddenFrame = DockDisplayGeometry.hiddenFrame(
+                restingFrame,
                 at: edge,
                 in: visibleFrame
             )
@@ -513,24 +512,4 @@ class DockPanel: NSPanel, NSWindowDelegate {
         )
     }
 
-    private func hiddenFrame(
-        for frame: NSRect,
-        at edge: DockScreenEdge,
-        in visibleFrame: NSRect
-    ) -> NSRect {
-        var hidden = frame
-
-        switch edge {
-        case .left:
-            hidden.origin.x = visibleFrame.minX - frame.width + revealThickness
-        case .right:
-            hidden.origin.x = visibleFrame.maxX - revealThickness
-        case .bottom:
-            hidden.origin.y = visibleFrame.minY - frame.height + revealThickness
-        case .top:
-            hidden.origin.y = visibleFrame.maxY - revealThickness
-        }
-
-        return hidden
-    }
 }

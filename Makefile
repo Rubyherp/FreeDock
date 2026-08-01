@@ -1,4 +1,4 @@
-.PHONY: bundle run test clean release
+.PHONY: bundle run test test-reliability clean release
 
 bundle:
 	./scripts/build.sh
@@ -10,6 +10,9 @@ run: bundle
 
 test:
 	swift test
+
+test-reliability:
+	swift test --filter ReliabilityInteractionTests
 
 release:
 	./scripts/build.sh --release

@@ -22,6 +22,7 @@ enum DockManagementAction: Equatable {
     case undo
     case exportConfiguration
     case importConfiguration
+    case restoreLastWorkingConfiguration
     case exportActiveProfile
     case importProfile
     case activateProfile(UUID)

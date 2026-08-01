@@ -79,7 +79,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Open in one click** — Launch apps, open documents, or browse folder stacks
 - **Lock positions** — Prevent accidental dock movement
 - **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
-- **Persistent config** — All docks are saved to `~/.config/freedock.json`
+- **Resilient configuration** — Atomic saves, three rotating recovery generations, and automatic startup recovery protect every dock and profile
 - **Portable backups** — Export or restore every profile and dock from a human-readable JSON file
 - **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
 
@@ -155,6 +155,8 @@ make run
 ## Configuration
 
 Docks, profiles, appearance themes, shortcuts, automation rules, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 10 adds per-profile application and display automation. Version 9 added per-profile shortcut assignments. Version 8 added portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
+
+Before replacing a valid configuration, FreeDock rotates three recovery generations at `freedock.json.bak`, `freedock.json.bak.1`, and `freedock.json.bak.2`. If the main file is damaged, startup automatically chooses the newest valid generation and repairs the main file without rotating the damaged data into recovery history. You can also choose **Preferences → Backup & Restore → Restore last working configuration**.
 
 ```json
 {
