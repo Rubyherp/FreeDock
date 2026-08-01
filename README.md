@@ -57,6 +57,7 @@ FreeDock lets you create unlimited floating docks on any macOS screen. Pin your 
 - **Global shortcuts** — Record unique shortcuts for Quick Launch, show/hide, and every profile; clear any profile shortcut you do not need
 - **Launch at login** — Optionally start FreeDock automatically when you sign in on macOS 13 or later
 - **Searchable settings** — Filter Preferences instantly using section names or familiar terms such as magnification, privacy, display, and shortcuts
+- **Session undo** — Recover deleted profiles, docks, themes, recent-file history, and pinned items—including items dropped onto Trash—with `⌘Z`
 - **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
 - **Saved appearance themes** — Capture a dock’s style, opacity, blur, corners, and shadow, then reuse it across docks and profiles
 - **Accessible motion** — Honors macOS Reduce Motion across dock, stack, reorder, and preview transitions, with VoiceOver descriptions for movement and resizing controls

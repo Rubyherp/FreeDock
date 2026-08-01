@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var dockPanels: [UUID: DockPanel] = [:]
     private let shortcutManager = GlobalShortcutManager()
+    private let actionUndoManager = UndoManager()
     private let configManager = ConfigManager(
         configPath: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/freedock.json")
@@ -324,6 +325,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         preferencesItem.target = self
         menu.addItem(preferencesItem)
 
+        let undoTitle = actionUndoManager.canUndo
+            ? "Undo \(actionUndoManager.undoActionName)"
+            : "Undo"
+        let undoItem = NSMenuItem(
+            title: undoTitle,
+            action: #selector(performUndo),
+            keyEquivalent: "z"
+        )
+        undoItem.keyEquivalentModifierMask = [.command]
+        undoItem.isEnabled = actionUndoManager.canUndo
+        undoItem.target = self
+        menu.addItem(undoItem)
+
         menu.addItem(.separator())
         let lockItem = NSMenuItem(title: "Lock Dock Positions", action: #selector(toggleLockPositions), keyEquivalent: "l")
         lockItem.state = _lockPositions ? .on : .off
@@ -404,6 +418,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             string: "https://www.buymeacoffee.com/thksalot"
         ) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func performUndo() {
+        actionUndoManager.undo()
+        rebuildMenu()
+    }
+
+    private func registerUndo(
+        _ actionName: String,
+        action: @escaping (AppDelegate) -> Void
+    ) {
+        actionUndoManager.registerUndo(withTarget: self) { target in
+            action(target)
+        }
+        actionUndoManager.setActionName(actionName)
     }
 
     private func presentOnboarding() {
@@ -1641,6 +1670,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deleteButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let previousActiveProfileID = configManager.config.activeProfileID
+        registerUndo("Delete Profile") { target in
+            target.restoreDeletedProfile(
+                profile,
+                at: index,
+                activeProfileID: previousActiveProfileID
+            )
+        }
         saveAllPositions()
         closeAllDockPanels()
         configManager.config.profiles.remove(at: index)
@@ -1649,6 +1686,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let nextIndex = min(index, configManager.config.profiles.count - 1)
         configManager.config.activeProfileID = configManager.config.profiles[nextIndex].id
+        restoreDocks()
+        configManager.save()
+        rebuildMenu()
+    }
+
+    private func restoreDeletedProfile(
+        _ profile: DockProfile,
+        at requestedIndex: Int,
+        activeProfileID: UUID
+    ) {
+        guard !configManager.config.profiles.contains(where: {
+            $0.id == profile.id
+        }) else { return }
+        saveAllPositions()
+        closeAllDockPanels()
+        let index = min(requestedIndex, configManager.config.profiles.count)
+        configManager.config.profiles.insert(profile, at: index)
+        configManager.config.globalShortcuts.reconcileProfiles(
+            configManager.config.profiles
+        )
+        configManager.config.activeProfileID = activeProfileID
         restoreDocks()
         configManager.save()
         rebuildMenu()
@@ -1845,7 +1903,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func confirmAndDeleteDock(_ id: UUID) {
-        guard let dock = configManager.config.docks.first(where: { $0.id == id }) else { return }
+        guard let index = configManager.config.docks.firstIndex(where: {
+            $0.id == id
+        }) else { return }
+        let dock = configManager.config.docks[index]
 
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
@@ -1857,7 +1918,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deleteButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let profileID = configManager.config.activeProfileID
+        registerUndo("Delete Dock") { target in
+            target.restoreDeletedDock(
+                dock,
+                at: index,
+                in: profileID
+            )
+        }
         performDeleteDock(id)
+    }
+
+    private func restoreDeletedDock(
+        _ dock: DockConfig,
+        at requestedIndex: Int,
+        in profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), !configManager.config.profiles[profileIndex].docks.contains(where: {
+            $0.id == dock.id
+        }) else { return }
+        let index = min(requestedIndex, configManager.config.profiles[profileIndex].docks.count)
+        configManager.config.profiles[profileIndex].docks.insert(dock, at: index)
+        if profileID == configManager.config.activeProfileID {
+            showDock(dock)
+        }
+        configManager.save()
+        rebuildMenu()
     }
 
     private func performDeleteDock(_ id: UUID) {
@@ -2125,6 +2213,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let previous = configManager.config.docks[index]
         guard previous.items != items else { return }
+        let removedItemIDs = Set(previous.items.map(\.id))
+            .subtracting(items.map(\.id))
+        if !removedItemIDs.isEmpty {
+            let profileID = configManager.config.activeProfileID
+            registerUndo("Remove Dock Item") { target in
+                target.restoreDockItems(
+                    previous.items,
+                    dockID: dockID,
+                    profileID: profileID
+                )
+            }
+        }
         var updated = previous
         updated.items = items
         configManager.config.docks[index] = updated
@@ -2140,6 +2240,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         preferencesStore?.replaceDock(updated)
         reconcileDockRuntime(from: previous, to: updated)
+        configManager.save()
+        refreshPreferencesSnapshot()
+        if !removedItemIDs.isEmpty {
+            rebuildMenu()
+        }
+    }
+
+    private func restoreDockItems(
+        _ items: [DockItem],
+        dockID: UUID,
+        profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }), let dockIndex = configManager.config.profiles[profileIndex]
+            .docks.firstIndex(where: { $0.id == dockID })
+        else { return }
+        let previous = configManager.config.profiles[profileIndex].docks[dockIndex]
+        var restored = previous
+        restored.items = items
+        configManager.config.profiles[profileIndex].docks[dockIndex] = restored
+        if profileID == configManager.config.activeProfileID {
+            preferencesStore?.replaceDock(restored)
+            reconcileDockRuntime(from: previous, to: restored)
+        }
         configManager.save()
         refreshPreferencesSnapshot()
     }
@@ -2241,6 +2366,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         var docks = configManager.config.docks
+        let originalDocks = docks
         guard let sourceIndex = docks.firstIndex(where: {
             $0.id == session.sourceDockID
         }),
@@ -2303,6 +2429,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        if case .removed = plan.outcome {
+            let profileID = configManager.config.activeProfileID
+            registerUndo("Remove Dock Item") { target in
+                target.restoreProfileDocks(
+                    originalDocks,
+                    profileID: profileID
+                )
+            }
+        }
+
         // Make both sides visible atomically before panels or Preferences
         // reconcile the transfer.
         configManager.config.docks = docks
@@ -2326,7 +2462,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshPreferencesSnapshot()
         itemDragCoordinator.publishContentChange()
         itemDragCoordinator.finish(sessionID: session.id)
+        if case .removed = plan.outcome {
+            rebuildMenu()
+        }
         return true
+    }
+
+    private func restoreProfileDocks(
+        _ docks: [DockConfig],
+        profileID: UUID
+    ) {
+        guard let profileIndex = configManager.config.profiles.firstIndex(where: {
+            $0.id == profileID
+        }) else { return }
+        configManager.config.profiles[profileIndex].docks = docks
+        if profileID == configManager.config.activeProfileID {
+            closeAllDockPanels()
+            restoreDocks()
+        }
+        configManager.save()
+        rebuildMenu()
     }
 
     private func activateDockItem(
@@ -2735,9 +2890,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clearButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        let recentFiles = configManager.config.recentFiles
+        registerUndo("Clear Recent Files") { target in
+            target.configManager.config.recentFiles = recentFiles
+            target.configManager.save()
+            target.refreshPreferencesSnapshot()
+        }
         closeFolderStack()
         configManager.config.recentFiles.removeAll()
         configManager.save()
+        rebuildMenu()
     }
 
     private func confirmAndImportSystemDockApps(into id: UUID) {
@@ -2948,9 +3110,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         deleteButton.hasDestructiveAction = true
         guard alert.runModal() == .alertSecondButtonReturn else { return }
 
+        registerUndo("Delete Theme") { target in
+            let insertionIndex = min(index, target.configManager.config.themes.count)
+            target.configManager.config.themes.insert(theme, at: insertionIndex)
+            target.configManager.save()
+            target.refreshPreferencesSnapshot()
+        }
         configManager.config.themes.remove(at: index)
         configManager.save()
-        refreshPreferencesSnapshot()
+        rebuildMenu()
     }
 
     private func showThemeError(_ message: String) {
