@@ -63,6 +63,20 @@ It is written in SwiftUI and AppKit, stores its configuration locally, and does 
   <img src="docs/showcase-window-switcher-sanitized.png" width="920" alt="FreeDock window switcher showing live Firefox window previews beside a vertical dock">
 </p>
 
+### Native controls, files, and smart stacks
+
+<p align="center">
+  <img src="docs/showcase-app-actions.png" width="420" alt="FreeDock application context menu with window, file, icon, rename, and removal actions">
+  &nbsp;&nbsp;
+  <img src="docs/showcase-smart-stacks.png" width="420" alt="FreeDock menu for adding files, folders, separators, Recent Files, and Downloads stacks">
+</p>
+
+### Everything within reach from the menu bar
+
+<p align="center">
+  <img src="docs/showcase-menu-bar.png" width="420" alt="FreeDock menu-bar controls for profiles, Quick Launch, docks, preferences, undo, position locking, support, and quitting">
+</p>
+
 ## Highlights
 
 ### Docks that fit your workspace
