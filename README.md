@@ -1,111 +1,100 @@
 <p align="center">
-  <img src="docs/logo.png" width="128" alt="FreeDock">
+  <img src="docs/logo.png" width="112" alt="FreeDock app icon">
 </p>
 
 <h1 align="center">FreeDock</h1>
 
 <p align="center">
-  <strong>Multiple floating docks for macOS.</strong>
+  <strong>A flexible, native dock for macOS.</strong>
   <br>
-  Free. Open-source. Native.
+  Create multiple docks, organize them into profiles, and make your workspace fit the way you work.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-12+-brightgreen" alt="macOS 12+">
+  <img src="https://img.shields.io/badge/macOS-12%2B-brightgreen" alt="macOS 12 or later">
   <img src="https://img.shields.io/badge/Swift-6.0-orange" alt="Swift 6.0">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
-  <img src="https://img.shields.io/badge/Platform-Apple_Silicon_%7C_Intel-blue" alt="Apple Silicon | Intel">
+  <img src="https://img.shields.io/badge/Apple_Silicon_%7C_Intel-supported-blue" alt="Apple Silicon and Intel supported">
 </p>
 
 <p align="center">
-  <img src="docs/screenshot-hero.png" width="600" alt="FreeDock in action">
-</p>
-
-FreeDock lets you create unlimited floating docks on any macOS screen. Pin your most-used apps, files, and folders, organize them by project, and keep them accessible with a single click — all without touching the system Dock.
-
----
-
-<p align="center">
-  <a href="https://github.com/Rubyherp/FreeDock/stargazers">
-    <img src="https://img.shields.io/github/stars/Rubyherp/FreeDock?style=for-the-badge&logo=github&label=Star%20on%20GitHub&cacheSeconds=0" alt="GitHub stars">
-    
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://www.buymeacoffee.com/thksalot">
-    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support%20My%20Education-orange?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee">
-  </a>
+  <img src="docs/showcase-multiple-docks-sanitized.png" width="920" alt="FreeDock running multiple horizontal and vertical docks on macOS">
 </p>
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/thksalot">
-    <img src="docs/qr-code.png" width="160" alt="Buy Me a Coffee QR code">
-  </a>
-  <br>
-  <strong>If FreeDock saves you time, consider supporting my education.</strong> ☕
+  <a href="#build-from-source"><strong>Build FreeDock</strong></a>
+  ·
+  <a href="docs/ROADMAP.md"><strong>Roadmap</strong></a>
+  ·
+  <a href="CONTRIBUTING.md"><strong>Contribute</strong></a>
+  ·
+  <a href="https://www.buymeacoffee.com/thksalot"><strong>Support the project</strong></a>
 </p>
 
----
+FreeDock is a free and open-source alternative for people who want more than one macOS Dock. Keep a compact launcher on each display, separate work and personal apps into profiles, pin files and folders beside applications, or build a focused dock for one project.
 
-## Features
+It is written in SwiftUI and AppKit, stores its configuration locally, and does not require an account or subscription.
 
-- **Unlimited docks** — Create as many docks as you need, on any screen
-- **Friendly onboarding** — A concise first-run guide introduces dock organization and keeps optional system permissions explicit
-- **Dock profiles** — Switch between separate Work, Focus, or Personal dock setups
-- **Portable profiles** — Export or import one profile—including docks, custom artwork, automation, and its available shortcut—without replacing the rest of your setup
-- **Profile automation** — Activate a profile when a chosen application becomes frontmost or a particular display connects
-- **Per-display placement** — Assign each dock to a monitor and restore its relative position after reconnecting
-- **Quick Launch** — Use the customizable shortcut (default `⌘⇧Space`), type to search the nearest dock, choose with arrows or Tab, and press Return to open
-- **Global shortcuts** — Record unique shortcuts for Quick Launch, show/hide, and every profile; clear any profile shortcut you do not need
-- **Launch at login** — Optionally start FreeDock automatically when you sign in on macOS 13 or later
-- **Searchable settings** — Filter Preferences instantly using section names or familiar terms such as magnification, privacy, display, and shortcuts
-- **Session undo** — Recover deleted profiles, docks, themes, recent-file history, and pinned items—including items dropped onto Trash—with `⌘Z`
-- **Live per-dock preferences** — Tune opacity, blur, shadows, magnification, spacing, orientation, indicators, and auto-hide
-- **Saved appearance themes** — Capture a dock’s style, opacity, blur, corners, and shadow, then reuse it across docks and profiles
-- **Native accessibility** — Honors Reduce Motion and Increased Contrast, adds shape-backed running indicators, grouped VoiceOver settings and dock-item actions, and keyboard routes for search (`⌘F`) and undo (`⌘Z`)
-- **macOS Dock import** — Append pinned apps to any FreeDock dock without changing Apple’s Dock
-- **Apps, files, and folders** — Pin applications, documents, and folders directly from Finder
-- **Custom item labels and icons** — Rename pinned items and embed optimized custom artwork that stays portable with configuration backups
-- **Folder stacks** — Browse live folder contents in an automatic, grid, or list view; sort by name, modification date, or kind, and optionally show hidden files
-- **Smart stacks** — Add Recent Files and Downloads without pinning fixed paths; Recent Files tracks successful document opens through FreeDock, while Downloads resolves for the current user
-- **Native Trash** — Add Trash to any dock, drop Finder items onto it to recycle them, and empty it from the right-click menu after confirmation
-- **Reorder** — Drag apps, documents, folders, and separators into any arrangement
-- **Cross-dock organization** — Drag an item to another dock to move it, or hold Option while dropping to copy it
-- **Horizontal or vertical** — Choose the orientation that fits your workflow
-- **Running app indicators** — See which apps are currently open at a glance
-- **Recent and running apps** — Optionally append unpinned running and recently observed apps to any dock, with a configurable limit and local-only history
-- **Native window switching** — Preview a running app’s windows by title and choose one to bring it forward
-- **Native item controls** — Right-click to show, hide, or quit apps; choose how stacks are displayed and sorted; or open a document with another compatible app
-- **Open files with apps** — Drop compatible Finder files or folders directly onto a pinned application
-- **Open in one click** — Launch apps, open documents, or browse folder stacks
-- **Lock positions** — Prevent accidental dock movement
-- **Edge auto-hide** — Dock to the nearest screen edge and let it slide away until needed
-- **Resilient configuration** — Atomic saves, three rotating recovery generations, and automatic startup recovery protect every dock and profile
-- **Portable backups** — Export or restore every profile and dock from a human-readable JSON file
-- **Native & lightweight** — Built with SwiftUI and AppKit, minimal resource usage
+## Preview
 
-## Free and open source, permanently
-
-FreeDock is MIT-licensed and all features are available to everyone. The goal is a thoughtful, native alternative to the system Dock—not a free trial or a feature-gated shell. See the [project roadmap](docs/ROADMAP.md) for the next improvements and ways to contribute.
-
-## Screenshots
+### Appearance that adapts per dock
 
 <p align="center">
-  <img src="docs/screenshot-menu.png" width="400" alt="Menu bar">
-  &nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshot-config-1.png" width="400" alt="Dock configuration">
+  <img src="docs/showcase-preferences-sanitized.png" width="920" alt="FreeDock Preferences showing profiles, horizontal and vertical docks, saved themes, glass styles, opacity, blur, corners, shadows, and icon sizing">
 </p>
+
+### Window switching across your workspace
 
 <p align="center">
-  <img src="docs/screenshot-config-2.png" width="400" alt="Dock settings">
+  <img src="docs/showcase-window-switcher-sanitized.png" width="920" alt="FreeDock window switcher showing live Firefox window previews beside a vertical dock">
 </p>
 
-<img src="docs/demo.gif" width="800" alt="FreeDock demo">
+## Highlights
 
-## Installation
+### Docks that fit your workspace
 
-Download the latest `FreeDock.app` from the [Releases](https://github.com/Rubyherp/FreeDock/releases) page (when available), then drag it to your Applications folder.
+- Create unlimited horizontal or vertical docks.
+- Place docks on any connected display and restore their relative position after reconnecting.
+- Resize, magnify, lock, snap, and auto-hide each dock independently.
+- Customize blur, opacity, spacing, corners, shadows, indicators, and reusable appearance themes.
 
-### Build from source
+### More than an app launcher
+
+- Pin applications, documents, folders, separators, smart stacks, and Trash.
+- Reorder items within a dock or drag them between docks; hold Option to copy.
+- Browse live folder stacks in grid or list layouts.
+- Add dynamic Recent Files and Downloads stacks.
+- Drop Finder files onto compatible applications or Trash.
+
+### Profiles and fast navigation
+
+- Keep separate Work, Focus, Personal, or project-specific dock profiles.
+- Switch profiles manually, with global shortcuts, when an app becomes active, or when a display connects.
+- Use Quick Launch (`⌘⇧Space` by default) to search the nearest dock entirely from the keyboard.
+- Export or import a complete configuration or one portable profile.
+
+### Native macOS behavior
+
+- See running indicators and optional recent/running applications.
+- Preview and switch between an app’s windows across displays and Desktops.
+- Use native context menus for application, document, folder, and Trash actions.
+- Honor Reduce Motion, Increased Contrast, VoiceOver, and keyboard navigation.
+- Optionally launch FreeDock when you sign in.
+
+### Built for reliability
+
+- Save configuration atomically to `~/.config/freedock.json`.
+- Keep three rotating recovery generations and automatically recover from damaged configuration files.
+- Undo destructive dock, profile, theme, history, and item actions during the current session.
+- Run focused interaction regression tests for hide/reveal, resizing, reordering, Trash, and multi-display recovery.
+
+## Build from source
+
+Requirements:
+
+- macOS 12 or later
+- Xcode 16 or later with Swift 6
+- Apple Silicon or Intel Mac
 
 ```bash
 git clone https://github.com/Rubyherp/FreeDock.git
@@ -113,191 +102,87 @@ cd FreeDock
 make run
 ```
 
-> **Note:** `swift run` launches the binary directly, bypassing the `.app` bundle. The `LSUIElement` setting (menu-bar agent mode) won't be respected this way. Always use `make run`, `./scripts/build.sh`, or open the `.app` bundle.
+`make run` builds a proper menu-bar `.app` bundle at `build/FreeDock.app` and opens it. Avoid `swift run` for normal use: it launches the executable without the bundle metadata FreeDock needs for menu-bar agent behavior.
 
-> **Development permissions:** Local builds are ad-hoc signed, so macOS may ask you to grant Accessibility or Screen Recording again after the executable changes. Properly signed release builds keep a stable permission identity.
+Other useful commands:
 
-**Requirements:** macOS 12+, Xcode 15+
-
-## Usage
-
-1. Click the **grid icon** (⫷) in your menu bar
-2. Select **New Dock → Horizontal** or **Vertical**
-3. Drag applications, documents, or folders from Finder into the dock
-4. Click an app or document to open it, or click a folder to browse its live contents
-5. Add a **Recent Files**, **Downloads**, or **Trash** item from the dock’s context menu or Preferences
-6. Right-click a stack to choose automatic, grid, or list view; change sorting; or show hidden files
-7. Drag pinned items to reorder or move them between docks; hold Option while dropping to copy instead
-8. Open **Preferences → Permissions** (or right-click a running app and choose **Enable Window Switching…**) to request Accessibility access from macOS
-9. From the same Permissions section, optionally enable Screen Recording for live window thumbnails; macOS may require FreeDock to be reopened after approval
-10. Hover over the app or choose **Show Windows…** to see its windows across desktops, then select one to bring it forward
-11. Right-click an app to bring it forward, hide it, or quit it; right-click a document to choose **Open With**
-12. Drop compatible Finder files onto a pinned app to open them with that app, or use **Open Files with…** from its right-click menu
-13. Right-click a pinned item to rename it, choose a custom icon, or restore its original icon
-14. Press `⌘⇧Space` from any app to search the nearest dock without reaching for the pointer
-
-**Pro tip:** Use **Lock Dock Positions** from the menu bar to prevent accidental moves.
-
-**Welcome guide:** FreeDock shows a short guide on a fresh install. Reopen it anytime from the menu bar with **Welcome to FreeDock…**.
-
-**Support:** The final welcome step includes the project’s Buy Me a Coffee QR code. You can also open the support page anytime from menu bar → **Support FreeDock…**. Support is always optional and never unlocks features.
-
-**Recent Files privacy:** This stack records only documents that FreeDock successfully opens. It does not read the system-wide recent-items list. Up to 50 paths are stored locally in `~/.config/freedock.json`, and you can clear the history from the stack or its right-click menu.
-
-**Window switching privacy:** Discovery and focus happen locally using macOS Accessibility and WindowServer APIs. Optional window thumbnails require Screen Recording access, are kept in a small memory-only cache, and are never written to disk. Without that permission, the same cards remain available with app icons and window titles. A thumbnail shows each window’s currently selected tab; inactive tabs are not separate macOS windows and cannot be captured generically without switching them. Like every FreeDock feature, window switching remains free and open source.
-
-**Window switcher keyboard controls:** Right-click a running app and choose **Show Windows…**, then use the arrow keys, Tab, or Shift-Tab to move between cards. Press Return, keypad Enter, or Space to activate the selected window, or Escape to close the switcher.
-
-**Customization:** Choose **Preferences…** from the FreeDock menu to manage window permissions, switch or manage profiles, create and organize docks, add files, folders, or smart stacks, assign docks to displays, import pinned apps from the macOS Dock, adjust behavior and appearance, save reusable appearance themes, or copy and reset dock settings. Changes are applied and saved immediately.
-
-**Shortcuts:** The defaults are `⌘⇧Space` for Quick Launch, `⌃⌥Space` to show or hide the active profile, and `⌃⌥1` through `⌃⌥9` for the first nine profiles. Every assignment can be recorded in Preferences. Profile shortcuts stay attached to their profile when profiles are renamed or reordered, and can be cleared by pressing Delete while recording.
-
-## Configuration
-
-Docks, profiles, appearance themes, shortcuts, automation rules, custom item artwork, and FreeDock’s local recent-document and application histories are saved to `~/.config/freedock.json`. The file is human-readable and editable — changes take effect the next time FreeDock launches. Format version 10 adds per-profile application and display automation. Version 9 added per-profile shortcut assignments. Version 8 added portable custom dock-item icons. Version 7 added saved appearance themes. Version 6 added the optional recent/running application section. Version 5 added configurable global shortcuts. Version 4 added Recent Files and Downloads smart stacks plus a bounded `recentFiles` history. Older configurations migrate automatically.
-
-Before replacing a valid configuration, FreeDock rotates three recovery generations at `freedock.json.bak`, `freedock.json.bak.1`, and `freedock.json.bak.2`. If the main file is damaged, startup automatically chooses the newest valid generation and repairs the main file without rotating the damaged data into recovery history. You can also choose **Preferences → Backup & Restore → Restore last working configuration**.
-
-```json
-{
-  "formatVersion": 10,
-  "activeProfileID": "11111111-1111-1111-1111-111111111111",
-  "globalShortcuts": {
-    "showHideDocks": { "keyCode": 49, "modifiers": 6144 },
-    "quickLaunch": { "keyCode": 49, "modifiers": 768 },
-    "profileShortcuts": [
-      {
-        "profileID": "11111111-1111-1111-1111-111111111111",
-        "shortcut": { "keyCode": 18, "modifiers": 6144 }
-      }
-    ]
-  },
-  "recentFiles": [
-    {
-      "path": "/Users/example/Documents/Project Brief.pdf",
-      "displayName": "Project Brief.pdf",
-      "lastOpenedAt": 806976000
-    }
-  ],
-  "profiles": [
-    {
-      "id": "11111111-1111-1111-1111-111111111111",
-      "name": "Work",
-      "docks": [
-        {
-          "id": "22222222-2222-2222-2222-222222222222",
-          "name": "Main",
-          "position": [100, 100],
-          "displayPlacement": {
-            "displayID": "33333333-3333-3333-3333-333333333333",
-            "displayName": "Built-in Retina Display",
-            "normalizedCenter": [0.5, 0.1],
-            "edge": "bottom"
-          },
-          "orientation": "horizontal",
-          "iconSize": 48,
-          "magnificationEnabled": true,
-          "magnification": 1.3,
-          "itemSpacing": 3,
-          "appearance": "glass",
-          "surfaceOpacity": 1,
-          "blurStyle": "regular",
-          "shadowStrength": 1,
-          "cornerRadius": 18,
-          "showDynamicApplications": true,
-          "dynamicApplicationLimit": 5,
-          "showRunningIndicators": true,
-          "autoHideWhenDocked": true,
-          "autoHideDelay": 1,
-          "items": [
-            {
-              "id": "44444444-4444-4444-4444-444444444444",
-              "kind": "application",
-              "path": "/Applications/Safari.app",
-              "appPath": "/Applications/Safari.app",
-              "label": "Safari",
-              "isSeparator": false
-            },
-            {
-              "id": "55555555-5555-5555-5555-555555555555",
-              "kind": "document",
-              "path": "/Users/example/Documents/Project Brief.pdf",
-              "appPath": "/Users/example/Documents/Project Brief.pdf",
-              "label": "Project Brief.pdf",
-              "isSeparator": false
-            },
-            {
-              "id": "66666666-6666-6666-6666-666666666666",
-              "kind": "folder",
-              "path": "/Users/example/Downloads",
-              "appPath": "/Users/example/Downloads",
-              "label": "Downloads",
-              "folderOptions": {
-                "presentation": "automatic",
-                "sortOrder": "dateModified",
-                "showHiddenFiles": false
-              },
-              "isSeparator": false
-            },
-            {
-              "id": "77777777-7777-7777-7777-777777777777",
-              "kind": "folder",
-              "path": "",
-              "appPath": "",
-              "label": "Recent Files",
-              "smartStackSource": "recentFiles",
-              "folderOptions": {
-                "presentation": "list",
-                "sortOrder": "recentlyOpened",
-                "showHiddenFiles": false
-              },
-              "isSeparator": false
-            },
-            {
-              "id": "88888888-8888-8888-8888-888888888888",
-              "kind": "folder",
-              "path": "",
-              "appPath": "",
-              "label": "Downloads",
-              "smartStackSource": "downloads",
-              "folderOptions": {
-                "presentation": "automatic",
-                "sortOrder": "dateModified",
-                "showHiddenFiles": false
-              },
-              "isSeparator": false
-            },
-            {
-              "id": "99999999-9999-9999-9999-999999999999",
-              "kind": "separator",
-              "path": "",
-              "appPath": "",
-              "isSeparator": true
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
+```bash
+make test              # Run the complete test suite
+make test-reliability  # Run high-risk interaction scenarios
+make bundle            # Build without opening the app
+make release           # Build an optimized, ad-hoc-signed app
 ```
 
-FreeDock also writes the active profile’s docks to a top-level compatibility field so older builds can still open the current setup. Typed items retain the legacy `appPath` and `isSeparator` fields for the same reason; `kind` and `path` are the version 3 fields to use when editing the file.
+## macOS security notice
 
-Smart stacks are folder-style items with an empty path and a `smartStackSource`. A Downloads stack resolves the current user’s Downloads directory dynamically instead of saving it as a fixed path. Only one stack for each smart source can be added to a dock.
+FreeDock’s local builds are ad-hoc signed because the project does not currently use a paid Apple Developer account. macOS may warn that the developer cannot be verified, and Accessibility or Screen Recording permission may need to be granted again after rebuilding the executable.
+
+This does not affect the source code or MIT license, but it is less convenient than a signed and notarized release. Review the source and build it locally if you prefer.
+
+## Getting started
+
+1. Run FreeDock and open its grid icon in the menu bar.
+2. Choose **New Dock → Horizontal** or **Vertical**.
+3. Drag applications, files, or folders from Finder into the dock.
+4. Right-click dock items for additional actions and customization.
+5. Open **Preferences** to configure profiles, displays, appearance, shortcuts, automation, backups, and permissions.
+6. Use **Lock Dock Positions** after arranging your workspace.
+
+The welcome guide appears on a fresh install and can be reopened from the FreeDock menu.
+
+## Permissions and privacy
+
+FreeDock works as a launcher without optional macOS permissions.
+
+| Permission | Used for | Required? |
+| --- | --- | --- |
+| Accessibility | Discovering and focusing application windows | Only for window switching |
+| Screen Recording | Creating live window thumbnails | No; title and app-icon cards remain available |
+
+Window discovery and focus happen locally. Thumbnails are held only in a small memory cache and are never written to disk. Recent Files records only documents successfully opened through FreeDock, stores at most 50 local paths, and can be cleared at any time.
+
+FreeDock does not include analytics, advertising, online accounts, or feature paywalls.
+
+## Configuration and recovery
+
+Profiles, docks, appearance themes, shortcuts, automation rules, custom item artwork, and local recent history are stored in the human-readable file:
+
+```text
+~/.config/freedock.json
+```
+
+Before replacing a valid configuration, FreeDock rotates these recovery files:
+
+```text
+freedock.json.bak
+freedock.json.bak.1
+freedock.json.bak.2
+```
+
+If the primary file is damaged, FreeDock loads the newest valid recovery generation and repairs the primary file. A previous version can also be restored from **Preferences → Backup & Restore**.
+
+## Project status
+
+FreeDock is actively developed. The core dock, profile, organization, window-switching, appearance, backup, and accessibility features are implemented and covered by automated tests. See the [roadmap](docs/ROADMAP.md) for planned work and areas where contributors can help.
 
 ## Contributing
 
-Contributions are welcome! Please read `CONTRIBUTING.md` before opening a PR.
+Contributions, bug reports, design feedback, documentation improvements, and focused feature proposals are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use the issue templates when reporting a problem or suggesting a feature.
 
-## Security
+Please report security vulnerabilities privately using [SECURITY.md](SECURITY.md).
 
-To report a vulnerability, please follow `SECURITY.md` and avoid public issue disclosure.
+## Support FreeDock
 
-## Code of Conduct
+FreeDock is MIT-licensed and every feature remains free. If the project is useful to you, you can support its continued development and the creator’s education.
 
-Please read `CODE_OF_CONDUCT.md` before participating.
+<p align="center">
+  <a href="https://www.buymeacoffee.com/thksalot">
+    <img src="docs/qr-code.png" width="150" alt="Buy Me a Coffee QR code">
+  </a>
+  <br>
+  <a href="https://www.buymeacoffee.com/thksalot"><strong>Buy me a coffee</strong></a>
+</p>
 
 ## License
 
-MIT
+FreeDock is available under the [MIT License](LICENSE).
