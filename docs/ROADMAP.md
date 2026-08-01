@@ -27,6 +27,7 @@ FreeDock is free and MIT-licensed. This roadmap is a guide for building a better
 - Native Launch at Login control with approval status in Preferences
 - Quick Launch search and keyboard navigation for the nearest dock
 - A dedicated preferences window for per-dock behavior, appearance, and live Accessibility and Screen Recording status
+- Tokenized Preferences search across global and per-dock settings
 - Validated JSON export and restore for portable configuration backups
 - Optional, append-only import of pinned apps from the macOS Dock
 - Stable per-display dock placement with disconnect and reconnect recovery

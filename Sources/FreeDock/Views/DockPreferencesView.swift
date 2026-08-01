@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DockPreferencesView: View {
     @ObservedObject var store: DockPreferencesStore
+    @State private var settingsSearchText = ""
 
     var body: some View {
         HSplitView {
@@ -31,6 +32,12 @@ struct DockPreferencesView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             profileHeader
+
+            TextField("Search Settings", text: $settingsSearchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+                .accessibilityLabel("Search FreeDock settings")
 
             Divider()
 
@@ -254,6 +261,15 @@ struct DockPreferencesView: View {
         if let dock = store.selectedDock {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if !settingsSearchText.isEmpty {
+                        Label(
+                            "Settings matching “\(settingsSearchText)”",
+                            systemImage: "magnifyingglass"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    }
+
                     VStack(alignment: .leading, spacing: 5) {
                         Text(dock.name)
                             .font(.system(size: 25, weight: .semibold))
@@ -667,6 +683,15 @@ struct DockPreferencesView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
+                    if !settingsSearchText.isEmpty {
+                        Label(
+                            "Settings matching “\(settingsSearchText)”",
+                            systemImage: "magnifyingglass"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    }
+
                     VStack(spacing: 12) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 38, weight: .light))
@@ -1171,23 +1196,57 @@ struct DockPreferencesView: View {
         symbol: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-                .foregroundStyle(.primary)
+        Group {
+            if PreferencesSearchMatcher.matches(
+                query: settingsSearchText,
+                text: title + " " + searchKeywords(for: title)
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(title, systemImage: symbol)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
 
-            VStack(spacing: 13) {
-                content()
+                    VStack(spacing: 13) {
+                        content()
+                    }
+                    .padding(15)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
+                    )
+                }
             }
-            .padding(15)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-            )
+        }
+    }
+
+    private func searchKeywords(for sectionTitle: String) -> String {
+        switch sectionTitle {
+        case "General":
+            return "launch login shortcut keyboard quick launch show hide switch profiles"
+        case "Profile Automation":
+            return "workflow rules application app frontmost display monitor connect"
+        case "Permissions":
+            return "privacy accessibility screen recording thumbnails windows"
+        case "Backup & Restore":
+            return "configuration import export json backup restore"
+        case "Appearance":
+            return "theme style glass solid opacity blur corner radius shadow"
+        case "Icons & Layout":
+            return "icon size magnification zoom spacing running indicators"
+        case "Placement":
+            return "display monitor orientation horizontal vertical position"
+        case "Behavior":
+            return "auto hide delay edge reveal"
+        case "Content":
+            return "recent running apps trash files folders downloads stack import dock history"
+        case "Reuse & Reset":
+            return "defaults copy other docks reset"
+        default:
+            return ""
         }
     }
 
